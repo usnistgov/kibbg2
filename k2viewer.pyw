@@ -3,8 +3,9 @@ import os,sys
 ##
 ##https://www.geeksforgeeks.org/pyqt5-qtabwidget/
 #https://realpython.com/python-pyqt-qthread/
+#https://stackoverflow.com/questions/6783194/background-thread-with-qthread-in-pyqt
 #
-from PyQt5.QtCore import QSize, Qtimport,QMutex, QObject, QThread, pyqtSignal
+from PyQt5.QtCore import QSize, QMutex, QObject, QThread, pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -39,6 +40,7 @@ from PyQt5.QtWidgets import (
 import k2tools
 import mplwidget
 import numpy as np
+from threading import *
 try:
        import pyi_splash
        pyi_splash.update_text('UI Loaded ...')
@@ -46,35 +48,113 @@ try:
 except:
     pass
 
+mutex = QMutex()
+
 class k2DataSet():
-    def __init__(self,bd0):
-        self.bd0 = bd0
-    def readForce(self):
-        if 'Force mode' not in os.listdir(self.bd0):
-            continue
-            self.readForce(os.path.join(filePath,'Force mode'))
+    def __init__(self):
+        self.bd0 = ''
+        self.clearForce()
+        self.clearEnv()
+        
+    def setbd0(self,bd0):
+        self.bd0= bd0
+    def readAll(self):
+        self.readForce()
+        self.readEnv()
+
+    def clearForce(self):
+        mutex.lock()
         self.ton=[]
         self.Uon=[]
         self.tof=[]
         self.Uof=[]
+        mutex.unlock()
+
+    def clearEnv(self):
+        mutex.lock()
+        self.edata = []
+        mutex.unlock()
+
+    def readForce(self):
+        if self.bd0=='':
+            self.clearForce()
+            return            
+        if 'Force mode' not in os.listdir(self.bd0):
+            self.clearForce()
+            return
+        bd = os.path.join(self.bd0,'Force mode')
+        ton=[]
+        Uon=[]
+        tof=[]
+        Uof=[]
         for files in os.listdir(bd):
             if files[7:9].upper()=='OF':
                 da  =np.loadtxt(os.path.join(bd,files))
-                self.tof.append( da[:,0])
-                self.Uof.append( da[:,1])
+                tof.append( da[:,0])
+                Uof.append( da[:,1])
              
             elif files[7:9].upper()=='ON':
                 da  =np.loadtxt(os.path.join(bd,files))
-                self.ton.append( da[:,0])
-                self.Uon.append( da[:,1])
-        currentIndex=self.tabWidget.tabs.currentIndex()
-        tat = self.tabWidget.tabs.tabText(currentIndex)
-        if tat=='Force':
-            self.plotForce()
+                ton.append( da[:,0])
+                Uon.append( da[:,1])
+        mutex.lock()
+        self.Uon = Uon
+        self.Uof = Uof
+        self.tof = tof
+        self.ton = ton
+        if len(self.ton)>1:
+            self.cton = np.concatenate(self.ton)
+            self.cUon = np.concatenate(self.Uon)*1e3
+        else:
+            self.cton = np.array(self.ton).flatten()
+            self.cUon = np.array(self.Uon).flatten()*1e3
+        if len(self.tof)>1:   
+            self.ctof = np.concatenate(self.tof)
+            self.cUof = np.concatenate(self.Uof)*1e3
+        else:
+            self.ctof = np.array(self.tof).flatten()
+            self.cUof = np.array(self.Uof).flatten()*1e3
 
+        mutex.unlock()
+    def hasOn(self):
+        return len(self.Uon)>0
         
-        
+    def hasOff(self):
+        return len(self.Uof)>0
 
+    def hasEnv(self):
+        return len(self.edata)>0
+
+    def readEnv(self):
+        if self.bd0=='':
+            self.cleaEnv()
+            return            
+        if 'PRTData.dat' not in os.listdir(self.bd0):
+            self.cleaEnv()
+            return
+        fn =os.path.join(self.bd0,'PRTData.dat')
+        da = np.loadtxt(fn,skiprows=1,usecols=[1,2,3])
+        da =np.vstack((np.arange(len(da[:,0])).T*10,da.T)).T
+        dens = k2tools.airDensity(da[:,3],da[:,2],da[:,1])
+        mutex.lock()
+        self.edata = np.vstack((da.T,dens)).T
+        mutex.unlock()
+
+kda =   k2DataSet()     
+
+
+class Worker(QObject):
+    finished = pyqtSignal()
+    intReady = pyqtSignal()
+
+
+    @pyqtSlot()
+    def procCounter(self): # A slot takes no params
+        kda.readForce()
+        kda.readEnv()
+        self.intReady.emit()
+        self.finished.emit()
+        
 # Subclass QMainWindow to customize your application's main window
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -84,7 +164,7 @@ class MainWindow(QMainWindow):
         else:
             self.bd='..\DATA'
 
-        self.clearVariables()
+        self.thread = QThread()
         self.setWindowTitle("Kibb-g2 Viewer")
         self.setFixedSize(QSize(1200, 600))
         
@@ -97,7 +177,7 @@ class MainWindow(QMainWindow):
         self.cbForMean = QCheckBox()
 
         self.tabWidget = MyTabWidget(self) 
- 
+        
 
         layout   = QVBoxLayout()
         hlayout  = QHBoxLayout()
@@ -117,13 +197,8 @@ class MainWindow(QMainWindow):
         self.mytable.clicked.connect(self.on_table_clicked)
         self.Brefresh.clicked.connect(self.loadTable)
         self.cbForMean.clicked.connect(self.plotForce)
-
-    def clearVariables(self):
-        self.ton=[]
-        self.Uon=[]
-        self.tof=[]
-        self.Uof=[]
-
+        self.tabWidget.tabs.currentChanged.connect(self.replot)
+    
 
     def loadTable(self):
          self.mytable.clearContents()
@@ -131,7 +206,6 @@ class MainWindow(QMainWindow):
          for s1 in sorted([ f.path for f in os.scandir(self.bd) \
                            if f.is_dir() ],reverse=True):
             yymm=os.path.split(s1)[-1]
-            #print(yymm)
             if len(yymm)==4:
                 for s2 in sorted([ f.path for f in os.scandir(s1)\
                                   if f.is_dir() ],reverse=True):
@@ -151,40 +225,34 @@ class MainWindow(QMainWindow):
         p2=0
         self.mplfor.canvas.ax1.clear()
         if self.cbForMean.isChecked():
-            if len(self.tof)>=1:
-                Uf =np.concatenate(self.Uof)*1e3
-                p1,=self.mplfor.canvas.ax1.plot(
-                    np.concatenate(self.tof),\
-                    Uf-np.mean(Uf),'b.')
-            if len(self.ton)>=1:
-                Un =np.concatenate(self.Uon)*1e3
-                p2,=self.mplfor.canvas.ax1.plot(
-                    np.concatenate(self.ton),\
-                    Un-np.mean(Un),'r.')
+            mof = np.mean(kda.cUof)
+            mon = np.mean(kda.cUon)
         else:
-        
-            if len(self.tof)>=1:
-                p1,=self.mplfor.canvas.ax1.plot(
-                    np.concatenate(self.tof),\
-                    np.concatenate(self.Uof)*1e3,'b.')
-            if len(self.ton)>=1:
-                p2,=self.mplfor.canvas.ax1.plot(
-                    np.concatenate(self.ton),\
-                    np.concatenate(self.Uon)*1e3,'r.')
-
+            mof=0
+            mon=0            
+        mutex.lock()
+        if kda.hasOff():
+            p1,=self.mplfor.canvas.ax1.plot(
+                kda.ctof,\
+                kda.cUof-mof,'b.')
+        if kda.hasOn():
+            p2,=self.mplfor.canvas.ax1.plot(
+                kda.cton,\
+                    kda.cUon-mon,'r.')
+        mutex.unlock()
         self.mplfor.canvas.ax1.set_xlabel('t/s')    
         self.mplfor.canvas.ax1.set_ylabel('U/mV')
         if self.cbForMean.isChecked():
             if p1!=0 and p2!=0:
                 self.mplfor.canvas.ax1.legend((p1,p2),\
-                        ('mass off-{0:10.3f} mV'.format(np.mean(Uf)),\
-                         'mass on-{0:10.3f} mV'.format(np.mean(Un))))
+                        ('mass off-{0:12.6f} mV'.format(np.mean(kda.Uof)),\
+                         'mass on-{0:12.6f} mV'.format(np.mean(kda.Uon))))
             elif p1!=0 and p2==0:
                 self.mplfor.canvas.ax1.legend((p1),\
-                        ('mass off-{0:10.3f} mV'.format(np.mean(Uf))))
+                        ('mass off-{0:12.6f} mV'.format(np.mean(kda.Uof))))
             elif p1==0 and p2!=0:
                 self.mplfor.canvas.ax1.legend((p2),\
-                        ('mass on-{0:10.3f} mV'.format(np.mean(Un))))
+                        ('mass on-{0:12.6f} mV'.format(np.mean(kda.Uon))))
         else:
             if p1!=0 and p2!=0:
                 self.mplfor.canvas.ax1.legend((p1,p2),\
@@ -197,39 +265,20 @@ class MainWindow(QMainWindow):
                         ('mass on'))
 
         self.mplfor.canvas.draw() 
-        
-        
-        
-    def readForce(self,bd):
-        self.ton=[]
-        self.Uon=[]
-        self.tof=[]
-        self.Uof=[]
-        for files in os.listdir(bd):
-            if files[7:9].upper()=='OF':
-                da  =np.loadtxt(os.path.join(bd,files))
-                self.tof.append( da[:,0])
-                self.Uof.append( da[:,1])
-             
-            elif files[7:9].upper()=='ON':
-                da  =np.loadtxt(os.path.join(bd,files))
-                self.ton.append( da[:,0])
-                self.Uon.append( da[:,1])
-        currentIndex=self.tabWidget.tabs.currentIndex()
-        tat = self.tabWidget.tabs.tabText(currentIndex)
-        if tat=='Force':
-            self.plotForce()
             
     def plotEnv(self):
         self.mplenv.canvas.ax1.clear()
         self.mplenv.canvas.ax2.clear()
         self.mplenv.canvas.ax3.clear()
         self.mplenv.canvas.ax4.clear()
-        self.mplenv.canvas.ax1.plot(self.edata [:,0],self.edata[:,1],'r.')
-        self.mplenv.canvas.ax2.plot(self.edata [:,0],self.edata[:,2],'b.')
-        self.mplenv.canvas.ax3.plot(self.edata [:,0],self.edata[:,3],'g.')
-        self.mplenv.canvas.ax4.plot(self.edata [:,0],self.edata[:,4],'m.')
-
+        if kda.hasEnv()==False:
+            return
+        mutex.lock()
+        self.mplenv.canvas.ax1.plot(kda.edata [:,0],kda.edata[:,1],'r.')
+        self.mplenv.canvas.ax2.plot(kda.edata [:,0],kda.edata[:,2],'b.')
+        self.mplenv.canvas.ax3.plot(kda.edata [:,0],kda.edata[:,3],'g.')
+        self.mplenv.canvas.ax4.plot(kda.edata [:,0],kda.edata[:,4],'m.')
+        mutex.unlock()
         self.mplenv.canvas.ax1.ticklabel_format(useOffset=False)
         self.mplenv.canvas.ax2.ticklabel_format(useOffset=False)
         self.mplenv.canvas.ax3.ticklabel_format(useOffset=False)
@@ -244,23 +293,38 @@ class MainWindow(QMainWindow):
         self.mplenv.canvas.ax2.set_ylabel('press. (hPa)')
         self.mplenv.canvas.ax3.set_ylabel('temp (degC)')
         self.mplenv.canvas.ax4.set_ylabel('air dens. (kg/m^3)')
-    
-    def readEnv(self,fn):
-        da = np.loadtxt(fn,skiprows=1,usecols=[1,2,3])
-        da =np.vstack((np.arange(len(da[:,0])).T*10,da.T)).T
-        dens = k2tools.airDensity(da[:,3],da[:,2],da[:,1])
-        self.edata = np.vstack((da.T,dens)).T
-        self.plotEnv()
+
+
+    def replot(self):
+        currentIndex=self.tabWidget.tabs.currentIndex()
+        tat = self.tabWidget.tabs.tabText(currentIndex)
+        if tat=='Force':
+            self.plotForce()
+        elif tat=='Environmentals':
+            self.plotEnv()
+ 
 
     def on_table_clicked(self,item):
         oo=self.mytable.item(item.row(), item.column()).text()
-        
         filePath = os.path.join(self.bd,oo[0:4],oo[4:6],oo[6])
-        if 'Force mode' in os.listdir(filePath):
-            self.readForce(os.path.join(filePath,'Force mode'))
-        if 'PRTData.dat' in os.listdir(filePath):
-            self.readEnv(os.path.join(filePath,'PRTData.dat'))
-   
+        kda.setbd0(filePath)
+        self.obj = Worker()  # no parent!
+        self.thread = QThread()  # no parent!
+        # 2 - Connect Worker`s Signals to Form method slots to post data.
+        self.obj.intReady.connect(self.replot)
+        # 3 - Move the Worker object to the Thread object
+        self.obj.moveToThread(self.thread)
+        # 4 - Connect Worker Signals to the Thread slots
+        self.obj.finished.connect(self.thread.quit)
+        # 5 - Connect Thread started signal to Worker operational slot method
+        self.thread.started.connect(self.obj.procCounter)
+
+       # * - Thread finished signal will close the app if you want!
+       #self.thread.finished.connect(app.exit)
+
+       # 6 - Start the thread
+        self.thread.start()
+      
 class MyTabWidget(QWidget): 
     def __init__(self, parent): 
         super(QWidget, self).__init__(parent) 
