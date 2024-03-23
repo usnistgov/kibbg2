@@ -1,6 +1,4 @@
 import sys,os
-#https://www.pythonguis.com/tutorials/pyqt-basic-widgets/
-#
 from PyQt5.QtCore import QSize, Qt
 from PyQt5.QtWidgets import (
     QApplication,
