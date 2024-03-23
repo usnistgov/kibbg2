@@ -26,7 +26,7 @@ class MplWidget(QWidget):
         self.vbl = QVBoxLayout()
         self.hbl = QHBoxLayout()
         self.ntb = NavigationToolbar2QT(self.canvas,parent)
-        self.label = QLabel('        veloviewer')
+        self.label = QLabel('k2 viewer v0.1')
         self.hbl.addWidget(self.ntb)
         self.hbl.addWidget(self.label)
         self.vbl.addWidget(self.canvas)

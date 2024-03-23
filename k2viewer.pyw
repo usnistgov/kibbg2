@@ -36,7 +36,8 @@ from numpy import loadtxt
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.bd = r"K:\TableTopWattBalance\KIBB-g2\DATA"
+        #self.bd = r"K:\TableTopWattBalance\KIBB-g2\DATA"
+        self.bd='..\DATA'
 
         self.setWindowTitle("Kibb-g2 Viewer")
         self.setFixedSize(QSize(1200, 600))
@@ -81,17 +82,25 @@ class MainWindow(QMainWindow):
     def plotForce(self,bd):
         self.mplw1.canvas.ax1.clear() 
         for files in os.listdir(bd):
-            da  =loadtxt(os.path.join(bd,files))
-            self.mplw1.canvas.ax1.plot(da[:,0],da[:,1]*1e3)
+            if files[7:9].upper()=='OF':
+                da  =loadtxt(os.path.join(bd,files))
+                p1,=self.mplw1.canvas.ax1.plot(da[:,0],da[:,1]*1e3,'b.')
+            elif files[7:9].upper()=='ON':
+                da  =loadtxt(os.path.join(bd,files))
+                p2,=self.mplw1.canvas.ax1.plot(da[:,0],da[:,1]*1e3,'r.')
+                
         self.mplw1.canvas.ax1.set_xlabel('t/s')    
         self.mplw1.canvas.ax1.set_ylabel('U/mV')    
+        
+        self.mplw1.canvas.ax1.legend((p1,p2),\
+        ('mass off','mass on'))
         self.mplw1.canvas.draw() 
         
 
     def on_treeView_clicked(self,index):
         indexItem = self.model.index(index.row(), 0, index.parent())
         filePath = self.model.filePath(indexItem)
-        print(filePath)
+        #print(filePath)
         if 'Force mode' in os.listdir(filePath):
             self.plotForce(os.path.join(filePath,'Force mode'))
             
