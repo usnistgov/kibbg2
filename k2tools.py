@@ -1,4 +1,5 @@
 import numpy as np
+import scipy.special
 
 def airDensity(temp,press,relHumid):     # in degC, hPa, %
     Ma= 28.96546e-3
@@ -63,3 +64,54 @@ def compressibility(temp,press,relHumid):     # in degC, hPa, %
     Z = 1-p/T*(a0+a1*temp+a2*temp*temp+(b0+b1*temp)*xv+(c0+c1*temp)*xv*xv)+p*p/(T*T)*(d+e*xv*xv)
     return Z
     
+
+
+def FitLikeACanadianOrthoMaster(t,xin,v,V,S,xmin=-5,xmax=5,order=4,x0=0):
+     #
+    #Fitting like a Canadian. 
+    #
+    # V = V0 + b0 *v + b1*v*x + b2*v*x**2 + b2*v*x**3
+
+    #X  =np.matrix((np.ones(len(t)),v,v*x,v*x**2)).T
+
+    mypol = scipy.special.eval_chebyt
+    x     =  (xin-xmin)/(0.5*(xmax-xmin))-1
+    x0s   =  (x0-xmin)/(0.5*(xmax-xmin))-1
+    
+    X = np.zeros((len(t),len(set(S))+1+order))
+    X[:,0]=t-min(t)
+    for i in range(1,order+1):
+        #X = np.c_[X,v*scipy.special.eval_legendre(i,x)]
+        X[:,i] = v*mypol(i,x)
+        
+    i=i+1
+    oss=S[0]
+    for n,s in enumerate(S):
+        if s!=oss:
+            i=i+1
+        X[n,i] = v[n]
+        
+            
+        oss=s
+    X  =np.matrix(X)
+    C =((X.T*X).I)
+    fit_pars=C*X.T*np.matrix(V).T
+    fit_vals =np.array( X*fit_pars)[:,0]  
+    C2 = np.dot(V-fit_vals,V-fit_vals)
+    NDF = len(V)
+    uncert =np.sqrt( C2/NDF)
+    
+    vals = np.array(fit_pars)[order+1:]
+    cor=0
+    for i in range(1,order+1):
+        cor += fit_pars[i,0]*mypol(i,x0s)
+        
+    ts =[]
+    for s in set(S):
+        ts.append(np.mean([i for i,j in zip(t,S) if j==s]))
+        
+    return np.array(ts),vals+cor,C2,NDF
+
+
+
+

@@ -34,12 +34,14 @@ from PyQt5.QtWidgets import (
     QTableWidgetItem,
     QTabWidget,
     QSpacerItem,
-    QSizePolicy
+    QSizePolicy,
+    QStatusBar
 )
-
+from pathlib import Path
 import k2tools
 import mplwidget
 import numpy as np
+import time
 from threading import *
 try:
        import pyi_splash
@@ -75,7 +77,22 @@ class k2DataSet():
         self.edata = []
         mutex.unlock()
 
+    def countForceFiles(self):
+        co=0
+        if 'Force mode' not in os.listdir(self.bd0):
+            return 0
+        bd = os.path.join(self.bd0,'Force mode')
+        for files in os.listdir(bd):
+            if files[7:9].upper()=='OF':
+                co+=1
+            elif files[7:9].upper()=='ON':
+                co+=1
+        return co
+                
+            
+        
     def readForce(self):
+        co=0
         if self.bd0=='':
             self.clearForce()
             return            
@@ -97,25 +114,33 @@ class k2DataSet():
                 da  =np.loadtxt(os.path.join(bd,files))
                 ton.append( da[:,0])
                 Uon.append( da[:,1])
-        mutex.lock()
-        self.Uon = Uon
-        self.Uof = Uof
-        self.tof = tof
-        self.ton = ton
-        if len(self.ton)>1:
-            self.cton = np.concatenate(self.ton)
-            self.cUon = np.concatenate(self.Uon)*1e3
-        else:
-            self.cton = np.array(self.ton).flatten()
-            self.cUon = np.array(self.Uon).flatten()*1e3
-        if len(self.tof)>1:   
-            self.ctof = np.concatenate(self.tof)
-            self.cUof = np.concatenate(self.Uof)*1e3
-        else:
-            self.ctof = np.array(self.tof).flatten()
-            self.cUof = np.array(self.Uof).flatten()*1e3
-
-        mutex.unlock()
+            if co==0:
+                self.fohdr,self.ti = self.readForHdr(bd,files)
+                if 'Resistor (ohm)' in self.fohdr:
+                    self.R = self.fohdr['Resistor (ohm)']
+                else:
+                    self.R =10000.032685
+            mutex.lock()
+            self.Uon = Uon
+            self.Uof = Uof
+            self.tof = tof
+            self.ton = ton
+            if len(self.ton)>1:
+                self.cton = np.concatenate(self.ton)
+                self.cIon = np.concatenate(self.Uon)/self.R*1e6
+            else:
+                self.cton = np.array(self.ton).flatten()
+                self.cIon = np.array(self.Uon).flatten()/self.R*1e6
+            if len(self.tof)>1:   
+                self.ctof = np.concatenate(self.tof)
+                self.cIof = np.concatenate(self.Uof)/self.R*1e6
+            else:
+                self.ctof = np.array(self.tof).flatten()
+                self.cIof = np.array(self.Uof).flatten()/self.R*1e6
+            mutex.unlock()
+            yield co
+            co=co+1
+            
     def hasOn(self):
         return len(self.Uon)>0
         
@@ -139,20 +164,111 @@ class k2DataSet():
         mutex.lock()
         self.edata = np.vstack((da.T,dens)).T
         mutex.unlock()
+        
+    def readForHdr(self,bd,fn):
+        with open(os.path.join(bd,fn)) as input_file:
+            head = [next(input_file) for _ in range(6)]
+        fields=[o.strip() for o in head[3].split('|')]
+        values=[float(f) for f  in head[4].split()[1:]]
+        return dict(zip(fields,values)),head[1][1:]
+
+    def clearVelo(self):
+        mutex.lock()
+        self.vt1=[]
+        self.vt2=[]
+        self.vt=[]
+        self.vz1=[]
+        self.vz2=[]
+        self.vz=[]
+        self.vv=[]
+        self.vV=[]
+        self.vS=[]
+        self.ft = []
+        self.fv = []
+ 
+        mutex.unlock()
+        
+    def countVeloFiles(self):
+        co=0
+        if 'Velocity mode' not in os.listdir(self.bd0):
+            return co
+        bd = os.path.join(self.bd0,'Velocity mode')
+        files=os.listdir(bd)
+        for f in files:
+            if f.endswith('VMData.dat'):
+                co+=1
+        return co
+    
+
+    def readVelo(self):
+        self.clearVelo()
+        if self.bd0=='':
+            return            
+        if 'Velocity mode' not in os.listdir(self.bd0):
+            return
+      
+        bd = os.path.join(self.bd0,'Velocity mode')
+        files=os.listdir(bd)
+        Sco=0
+        files = [str(i) for i in sorted(Path(bd).iterdir(), key=os.path.getmtime)]
+        for f in files:
+            if f.endswith('VMData.dat'):
+                data = np.loadtxt(os.path.join(bd,f))
+                mutex.lock()
+                self.vt1 = np.r_[self.vt1,data[:,0]]
+                self.vt2 = np.r_[self.vt2,data[:,1]]
+                self.vz1 = np.r_[self.vz1,data[:,2]]
+                self.vz2 = np.r_[self.vz2,data[:,3]]
+                self.vv = np.r_[self.vv,data[:,5]]
+                self.vV = np.r_[self.vV,data[:,6]]
+                self.vS = np.r_[self.vS,np.ones(len(data[:,4]))*Sco]
+                self.vt =0.5*(self.vt1+self.vt2)
+                self.vz =0.5*(self.vz1+self.vz2)
+                mutex.unlock()
+                #print(f,min(data[:,0]))
+                Sco+=1
+                yield Sco
+    
+    def fitVelo(self,order): 
+        if len(self.vt1)<20:
+            return
+        zmin = min(self.vz)
+        zmax = max(self.vz)
+        ft,fv,fC2,fNDF = \
+        k2tools.FitLikeACanadianOrthoMaster(
+            self.vt,self.vz,self.vv,self.vV,self.vS,zmin,zmax,order)
+        mutex.lock()
+        self.ft = ft
+        self.fv = fv
+        self.fC2 = fC2
+        self.fNDF = fNDF        
+        mutex.unlock()
+        
+        
+
 
 kda =   k2DataSet()     
 
 
 class Worker(QObject):
     finished = pyqtSignal()
-    intReady = pyqtSignal()
+    intReady = pyqtSignal(int,int,int)
 
 
     @pyqtSlot()
     def procCounter(self): # A slot takes no params
-        kda.readForce()
+        self.intReady.emit(0,0,0)
+        tot = kda.countForceFiles()
+        for k in kda.readForce():
+            self.intReady.emit(1,k,tot)
         kda.readEnv()
-        self.intReady.emit()
+        self.intReady.emit(2,0,0)
+        tot = kda.countVeloFiles()
+        for k in kda.readVelo():
+            self.intReady.emit(3,k,tot) 
+        
+        kda.fitvelo()
+        self.intReady.emit(99,0,0)
         self.finished.emit()
         
 # Subclass QMainWindow to customize your application's main window
@@ -171,26 +287,36 @@ class MainWindow(QMainWindow):
         self.mytable = QTableWidget(2,1) 
         self.mytable.setFixedWidth(200)
         self.Brefresh = QPushButton("Reload")
+        
+        ### The plot windows
+        
         self.mplfor =mplwidget.MplWidget()
         self.mplenv =mplwidget.MplWidget4()
+        self.mplvel =mplwidget.MplWidget()
         
         self.cbForMean = QCheckBox()
 
         self.tabWidget = MyTabWidget(self) 
-        
+        self.statusBar = QStatusBar()
+        self.setStatusBar(self.statusBar)
+        self.statusBar.showMessage('Welcome to k2viewer',5000)
 
         layout   = QVBoxLayout()
         hlayout  = QHBoxLayout()
         vlayout1 = QVBoxLayout()
+        vlayout2 = QVBoxLayout()
         
-        vlayout1.addWidget(self.mytable)
-        vlayout1.addWidget(self.Brefresh)
-        hlayout.addLayout(vlayout1)
     
-        hlayout.addWidget(self.tabWidget)
-        layout.addLayout(hlayout)
+        
         widget = QWidget()
         widget.setLayout(layout)
+        layout.addLayout(hlayout)
+        hlayout.addLayout(vlayout1)
+        hlayout.addLayout(vlayout2)
+        vlayout2.addWidget(self.tabWidget)
+        vlayout1.addWidget(self.mytable)
+        vlayout1.addWidget(self.Brefresh)
+     
         self.setCentralWidget(widget)
         self.loadTable()
 
@@ -225,8 +351,8 @@ class MainWindow(QMainWindow):
         p2=0
         self.mplfor.canvas.ax1.clear()
         if self.cbForMean.isChecked():
-            mof = np.mean(kda.cUof)
-            mon = np.mean(kda.cUon)
+            mof = np.mean(kda.cIof)
+            mon = np.mean(kda.cIon)
         else:
             mof=0
             mon=0            
@@ -234,25 +360,25 @@ class MainWindow(QMainWindow):
         if kda.hasOff():
             p1,=self.mplfor.canvas.ax1.plot(
                 kda.ctof,\
-                kda.cUof-mof,'b.')
+                kda.cIof-mof,'b.')
         if kda.hasOn():
             p2,=self.mplfor.canvas.ax1.plot(
                 kda.cton,\
-                    kda.cUon-mon,'r.')
+                    kda.cIon-mon,'r.')
         mutex.unlock()
         self.mplfor.canvas.ax1.set_xlabel('t/s')    
-        self.mplfor.canvas.ax1.set_ylabel('U/mV')
+        self.mplfor.canvas.ax1.set_ylabel('I/uA')
         if self.cbForMean.isChecked():
             if p1!=0 and p2!=0:
                 self.mplfor.canvas.ax1.legend((p1,p2),\
-                        ('mass off-{0:12.6f} mV'.format(np.mean(kda.Uof)),\
-                         'mass on-{0:12.6f} mV'.format(np.mean(kda.Uon))))
+                        ('mass off-{0:12.6f} uA'.format(mof),\
+                          'mass on-{0:12.6f} uA'.format(mon)))
             elif p1!=0 and p2==0:
                 self.mplfor.canvas.ax1.legend((p1),\
-                        ('mass off-{0:12.6f} mV'.format(np.mean(kda.Uof))))
+                        ('mass off-{0:12.6f} uA'.format(mof)))
             elif p1==0 and p2!=0:
                 self.mplfor.canvas.ax1.legend((p2),\
-                        ('mass on-{0:12.6f} mV'.format(np.mean(kda.Uon))))
+                        ('mass on-{0:12.6f} uA'.format(mon)))
         else:
             if p1!=0 and p2!=0:
                 self.mplfor.canvas.ax1.legend((p1,p2),\
@@ -295,6 +421,21 @@ class MainWindow(QMainWindow):
         self.mplenv.canvas.ax4.set_ylabel('air dens. (kg/m^3)')
 
 
+    def plotVelocity(self):
+        self.mplvel.canvas.ax1.clear()
+        mutex.lock()
+        if len(kda.ft)>2:
+            p1,=self.mplvel.canvas.ax1.plot(
+                kda.ft,\
+                np.abs(kda.fv)*1e3,'b.')
+        mutex.unlock()
+        self.mplfor.canvas.ax1.set_xlabel('t/s')    
+        self.mplfor.canvas.ax1.set_ylabel('Bl/Tm')
+        self.mplfor.canvas.draw() 
+
+
+
+
     def replot(self):
         currentIndex=self.tabWidget.tabs.currentIndex()
         tat = self.tabWidget.tabs.tabText(currentIndex)
@@ -302,7 +443,32 @@ class MainWindow(QMainWindow):
             self.plotForce()
         elif tat=='Environmentals':
             self.plotEnv()
- 
+        elif tat=='Velocity':
+            self.plotVelocity()
+            
+
+    def readStatus(self,ix,cur,tot):
+        if ix==0: 
+            self.start=time.time()
+            return
+        if ix==1:
+            self.statusBar.showMessage('Reading Force Files {0}/{1}'.\
+                                       format(cur,tot),100)
+            if cur>2:
+                self.replot()
+        elif ix==2:
+            self.statusBar.showMessage('Reading Environmentals',1000)
+        elif ix==3:
+            self.statusBar.showMessage('Reading Velo Files {0}/{1}'.\
+                                       format(cur,tot),100)
+        elif ix==99:
+            dt = time.time()- self.start 
+            self.statusBar.showMessage('Reading completed in {0:3.1f} seconds'.\
+                                       format(dt),2000)
+            
+        #self.replot()
+            
+        
 
     def on_table_clicked(self,item):
         oo=self.mytable.item(item.row(), item.column()).text()
@@ -311,7 +477,7 @@ class MainWindow(QMainWindow):
         self.obj = Worker()  # no parent!
         self.thread = QThread()  # no parent!
         # 2 - Connect Worker`s Signals to Form method slots to post data.
-        self.obj.intReady.connect(self.replot)
+        self.obj.intReady.connect(self.readStatus)
         # 3 - Move the Worker object to the Thread object
         self.obj.moveToThread(self.thread)
         # 4 - Connect Worker Signals to the Thread slots
@@ -340,7 +506,7 @@ class MyTabWidget(QWidget):
         # Add tabs 
         self.tabs.addTab(self.tab1, "Force") 
         self.tabs.addTab(self.tab2, "Environmentals") 
-        self.tabs.addTab(self.tab3, "Distant Future") 
+        self.tabs.addTab(self.tab3, "Velocity") 
   
         # Create first tab 
         self.tab1.layout = QHBoxLayout(self)
@@ -371,10 +537,37 @@ class MyTabWidget(QWidget):
         
         # Create sceond tab 
         self.tab2.layout = QHBoxLayout(self)
-
-
         self.tab2.layout.addWidget(parent.mplenv)
         self.tab2.setLayout(self.tab2.layout) 
+    
+        # Create third tab 
+        self.tab3.layout = QHBoxLayout(self)
+        tab3ctrl = QVBoxLayout(self)
+        
+        l1 = QLabel() 
+        l1.setText("Velocitymode") 
+        h1 = QHBoxLayout(self)
+        l2 = QLabel() 
+        l2.setText("order")
+        h1.addWidget(l2)
+        #h1.addWidget(parent.cbForMean)
+        
+        verticalSpacer = QSpacerItem(20, 40, 
+                                     QSizePolicy.Minimum, 
+                                     QSizePolicy.Expanding)
+
+        tab3ctrl.addWidget(l1)
+        tab3ctrl.addLayout(h1)
+        tab3ctrl.addItem(verticalSpacer)
+        
+        
+        
+        
+        self.tab3.layout.addLayout(tab3ctrl)
+        self.tab3.layout.addWidget(parent.mplvel) 
+        self.tab3.setLayout(self.tab3.layout) 
+        
+
   
         # Add tabs to widget 
         self.layout.addWidget(self.tabs) 
