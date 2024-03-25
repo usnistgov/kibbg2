@@ -110,7 +110,7 @@ def FitLikeACanadianOrthoMaster(t,xin,v,V,S,xmin=-5,xmax=5,order=4,x0=0):
     for s in set(S):
         ts.append(np.mean([i for i,j in zip(t,S) if j==s]))
         
-    return np.array(ts),vals+cor,C2,NDF
+    return np.array(ts),np.array(vals+cor)[:,0],C2,NDF
 
 
 

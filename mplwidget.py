@@ -10,9 +10,11 @@ from matplotlib.figure import Figure
 #from matplotlib.pyplot import subplots
 
 class MplCanvas(FigureCanvas):
-    def __init__(self):
+    def __init__(self,rightax=False):
         self.fig = Figure()
         self.ax1 = self.fig.add_subplot(111)
+        if rightax:
+            self.bx1 = self.ax1.twinx()
         self.fig.subplots_adjust(left=0.2,bottom=0.15,right=0.8)
         FigureCanvas.__init__(self, self.fig)
         FigureCanvas.setSizePolicy(self,
@@ -21,9 +23,9 @@ class MplCanvas(FigureCanvas):
         FigureCanvas.updateGeometry(self)
 
 class MplWidget(QWidget):
-    def __init__(self, parent = None):
+    def __init__(self, parent = None,rightax=False):
         QWidget.__init__(self, parent)
-        self.canvas = MplCanvas()
+        self.canvas = MplCanvas(rightax)
         self.vbl = QVBoxLayout()
         self.hbl = QHBoxLayout()
         self.ntb = NavigationToolbar2QT(self.canvas,parent)
