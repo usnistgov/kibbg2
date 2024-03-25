@@ -1,4 +1,6 @@
 import os,sys
+import traceback
+
 ##https://www.pythonguis.com/tutorials/pyqt-basic-widgets/
 ##
 ##https://www.geeksforgeeks.org/pyqt5-qtabwidget/
@@ -55,7 +57,6 @@ class Worker(QObject):
         for k in kda.readVelo():
             self.intReady.emit(3,k,tot) 
         
-        kda.fitVelo(4)
         self.intReady.emit(99,0,0)
         self.finished.emit()
         
@@ -286,6 +287,9 @@ class MainWindow(QMainWindow):
         self.mplmass.canvas.ax1.clear()
         mutex.lock()
         tmul,tla = kda.tmul()
+        lines,cols = np.shape(kda.Fresult)
+        if lines==0: 
+            return
         mean = np.sum(kda.Fresult[:,1]/kda.Fresult[:,2]**2)/np.sum(1/kda.Fresult[:,2]**2)
         sig = np.sqrt(1/np.sum(1/kda.Fresult[:,2]**2))
         self.mplmass.canvas.ax1.errorbar(
@@ -348,9 +352,11 @@ class MainWindow(QMainWindow):
                                        format(cur,tot),100)
         elif ix==99:
             dt = time.time()- self.start 
+            kda.fitVelo( int(self.sbOrder.value() ),-1)
             self.statusBar.showMessage('Reading completed in {0:3.1f} seconds'.\
                                        format(dt),2000)
             self.sblabel.setText(kda.title)
+            self.sbSupports.setValue(kda.nrknots)
             
         #self.replot()
             
@@ -483,7 +489,23 @@ class MyTabWidget(QWidget):
         self.layout.addWidget(self.tabs) 
         self.setLayout(self.layout) 
 
+
+def excepthook(exc_type, exc_value, exc_tb):
+    tb = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+    print("error catched!:")
+    print("error message:\n", tb)
+    fi=open('k2viewer.dbg','w')
+    fi.write("error catched!:\n")
+    fi.write("error message:\n"+ tb)
+    fi.close()
+    QApplication.quit()
+    # or QtWidgets.QApplication.exit(0)
+
+
 app = QApplication(sys.argv)
+sys.excepthook = excepthook
+
 window = MainWindow()
 window.show()
 app.exec()
+sys.exit()

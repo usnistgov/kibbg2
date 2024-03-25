@@ -250,7 +250,7 @@ class k2DataSet():
                 Sco+=1
                 yield Sco
     
-    def fitVelo(self,order=4,nrknots=5): 
+    def fitVelo(self,order=4,nrknots=-1): 
         if len(self.vt1)<20:
             return
         zmin = min(self.vz)
@@ -260,7 +260,17 @@ class k2DataSet():
             self.vt,self.vz,self.vv,self.vV,self.vS,zmin,zmax,order)
         self.maxt = self.getmaxt()
         xs = myspline.xfscale(vblt,0,self.maxt)
-        self.myspl = myspline.BSpline(nrknots,2)
+
+        if nrknots==-1:
+            mknr = min(12,len(vblv)-2)
+            knr =range(3,mknr)       
+            c2=[]
+            for kn in knr:
+                myspl = myspline.BSpline(kn,3,lam=0)
+                c2.append(myspl.fit(xs,vblv))
+            nrknots =knr[np.argmin(c2)]
+        self.myspl = myspline.BSpline(nrknots,3,lam=0)
+        self.nrknots=nrknots
         self.myspl.fit(xs,vblv)
         sblt_ =np.linspace(0,0.99,100)
         sblv =self.myspl.calc(sblt_)
@@ -276,13 +286,14 @@ class k2DataSet():
         self.calcforce()
         
     def calcforce(self): 
+        
         ts = myspline.xfscale(self.Fdata[:,0],0,self.maxt)
         bls = self.myspl.calc(ts)
         self.Fdata[:,3]=self.Fdata[:,1]*bls # in mN
         time=[]
         vals=[]
         unc=[]
-        for grp in range(int(max(self.Fdata[:,2]))):
+        for grp in range(1+int(max(self.Fdata[:,2]))):
             data0 = self.Fdata[np.where(self.Fdata[:,2]==grp)[0],:]
             val,var=myfilters.SwanFilterWithVar(data0[:,3],2)
             val =val*(2)
