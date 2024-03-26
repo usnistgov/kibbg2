@@ -386,7 +386,7 @@ class MainWindow(QMainWindow):
                 nitem =QTableWidgetItem('{0:,.4f}'.format(kda.mass*1e3) )
                 nitem.setTextAlignment(int(Qt.AlignRight | Qt.AlignVCenter))
                 self.mytable.setItem(self.calcrow,1,nitem)
-                nitem =QTableWidgetItem('{0:5.4f}'.format(kda.massunc*1e3))
+                nitem =QTableWidgetItem('{0:6.4f}'.format(kda.massunc*1e3))
                 nitem.setTextAlignment(int(Qt.AlignRight | Qt.AlignVCenter))
                 self.mytable.setItem(self.calcrow,2,nitem)
                 self.mytable.setItem(self.calcrow,3,QTableWidgetItem(kda.title))
