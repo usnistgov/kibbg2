@@ -5,3 +5,4 @@ k2viewer.spec
 /.ipynb_checkpoins
 *.ipynb
 k2viewer.dbg
+k2viewer.exe

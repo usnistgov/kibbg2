@@ -64,10 +64,10 @@ class Worker(QObject):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        if os.getcwd().startswith('Z:\\BB'):    
-            self.bd = r"K:\TableTopWattBalance\KIBB-g2\DATA"
-        else:
-            self.bd='..\DATA'
+        #if os.getcwd().startswith('Z:\\BB'):    
+            #self.bd = r"K:\TableTopWattBalance\KIBB-g2\DATA"
+        #else:
+        self.bd='..\DATA'
 
         self.thread = QThread()
         self.setWindowTitle("Kibb-g2 Viewer")
@@ -262,7 +262,7 @@ class MainWindow(QMainWindow):
         mutex.lock()
         tmul,tla = kda.tmul()
         
-        if len(kda.vblv)>2:
+        if len(kda.vblv)>=2:
             p1,=self.mplvel.canvas.ax1.plot(
                 kda.vblt*tmul,\
                 np.abs(kda.vblv)*1e3,'b.')

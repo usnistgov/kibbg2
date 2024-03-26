@@ -15,6 +15,7 @@ class k2DataSet():
     def __init__(self,mutex):
         self.bd0 = ''
         self.hasresult=False
+        self.hasvelofit=False
         self.mutex =mutex
         self.clearForce()
         self.clearVelo()
@@ -192,6 +193,8 @@ class k2DataSet():
 
     def clearVelo(self):
         self.mutex.lock()
+        self.hasvelofit=False
+        self.hasspline=False
         self.vt1=[]
         self.vt2=[]
         self.vt=[]
@@ -227,14 +230,13 @@ class k2DataSet():
             return            
         if 'Velocity mode' not in os.listdir(self.bd0):
             return
-      
         bd = os.path.join(self.bd0,'Velocity mode')
         files=os.listdir(bd)
         Sco=0
         files = [str(i) for i in sorted(Path(bd).iterdir(), key=os.path.getmtime)]
         for f in files:
             if f.endswith('VMData.dat'):
-                data = np.loadtxt(os.path.join(bd,f))
+                data = np.loadtxt(f)
                 self.mutex.lock()
                 self.vt1 = np.r_[self.vt1,data[:,0]]
                 self.vt2 = np.r_[self.vt2,data[:,1]]
@@ -260,22 +262,32 @@ class k2DataSet():
             self.vt,self.vz,self.vv,self.vV,self.vS,zmin,zmax,order)
         self.maxt = self.getmaxt()
         xs = myspline.xfscale(vblt,0,self.maxt)
-
-        if nrknots==-1:
-            mknr = min(12,len(vblv)-2)
-            knr =range(3,mknr)       
-            c2=[]
-            for kn in knr:
-                myspl = myspline.BSpline(kn,3,lam=0)
-                c2.append(myspl.fit(xs,vblv))
-            nrknots =knr[np.argmin(c2)]
-        self.myspl = myspline.BSpline(nrknots,3,lam=0)
-        self.nrknots=nrknots
-        self.myspl.fit(xs,vblv)
-        sblt_ =np.linspace(0,0.99,100)
-        sblv =self.myspl.calc(sblt_)
-        sblt= myspline.xunscale(sblt_,0,self.maxt)        
+        if len(vblv)>2:
+            if nrknots==-1:
+                mknr = min(12,len(vblv))
+                print('mknr = ',mknr)
+                knr =range(2,mknr)       
+                c2=[]
+                print('mknr = ',knr)   
+                for kn in knr:
+                    myspl = myspline.BSpline(kn,3,lam=0)
+                    c2.append(myspl.fit(xs,vblv))
+                nrknots =knr[np.argmin(c2)]
+                self.myspl = myspline.BSpline(nrknots,3,lam=0)
+            self.nrknots=nrknots
+            self.myspl.fit(xs,vblv)
+            sblt_ =np.linspace(0,0.99,100)
+            sblv =self.myspl.calc(sblt_)
+            sblt= myspline.xunscale(sblt_,0,self.maxt)   
+            self.hasspline=True
+        else:
+            self.nrknots=2
+            sblt_ =np.linspace(0,0.99,100)
+            sblv = np.interp(sblt_, xs , vblv)
+            sblt= myspline.xunscale(sblt_,0,self.maxt) 
+            
         self.mutex.lock()
+        self.xs = xs
         self.vblt = vblt
         self.vblv = vblv
         self.fC2 = fC2
@@ -285,10 +297,18 @@ class k2DataSet():
         self.mutex.unlock()
         self.calcforce()
         
-    def calcforce(self): 
+    def calcvelo(self,ts):
+        if self.hasspline:
+            return self.myspl.calc(ts)
+        return np.interp(ts, self.xs , self.vblv)
+
+            
         
+        
+        
+    def calcforce(self):   
         ts = myspline.xfscale(self.Fdata[:,0],0,self.maxt)
-        bls = self.myspl.calc(ts)
+        bls = self.calcvelo(ts)
         self.Fdata[:,3]=self.Fdata[:,1]*bls # in mN
         time=[]
         vals=[]
