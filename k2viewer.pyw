@@ -36,6 +36,7 @@ from PyQt5.QtWidgets import (
 import mplwidget
 import numpy as np
 import time
+import sqlite3
 import k2dataset
 try:
        import pyi_splash
@@ -77,6 +78,7 @@ class MainWindow(QMainWindow):
         #else:
         self.bd='..\DATA'
         self.idle=True
+        self.statust=time.time()
 
         self.thread = QThread()
         self.setWindowTitle("Kibb-g2 Viewer")
@@ -171,6 +173,9 @@ class MainWindow(QMainWindow):
     def loadTable(self):
          self.mytable.clearContents()
          self.mytable.setRowCount(0)
+         connection = sqlite3.connect('k2viewer.db')
+         cursor = connection.cursor()
+
   
          for s1 in sorted([ f.path for f in os.scandir(self.bd) \
                            if f.is_dir() ],reverse=True):
@@ -184,10 +189,33 @@ class MainWindow(QMainWindow):
                                           if f.is_dir() ],reverse=True):
                             letter=os.path.split(s3)[-1]
                             if len(letter)==1:
+                                run =yymm+day+letter
                                 row_number = self.mytable.rowCount()
                                 self.mytable.insertRow(row_number)
                                 self.mytable.setItem(row_number,0,\
-                                 QTableWidgetItem(str(yymm+day+letter)))
+                                 QTableWidgetItem(str(run)))
+                                dbentry = cursor.execute("""SELECT run,value,
+                                uncertainty,title FROM k2data 
+                                WHERE run="{0}";""".format(run)).fetchall()
+                                if len(dbentry)==0:
+                                    continue
+                                dbentry=dbentry[0]
+                                #print(dbentry)
+                                if dbentry[1]>-9e99:
+                                    nitem =QTableWidgetItem('{0:,.4f}'.format(dbentry[1]*1e3) )
+                                else:
+                                    nitem =QTableWidgetItem('n/a')
+                                nitem.setTextAlignment(int(Qt.AlignRight | Qt.AlignVCenter))
+                                self.mytable.setItem(row_number,1,nitem)
+                                if dbentry[2]>-9e99:
+                                    nitem =QTableWidgetItem('{0:6.4f}'.format(dbentry[2]*1e3))
+                                else:
+                                    nitem =QTableWidgetItem('n/a')                                
+                                nitem.setTextAlignment(int(Qt.AlignRight | Qt.AlignVCenter))
+                                self.mytable.setItem(row_number,2,nitem)
+                                self.mytable.setItem(row_number,3,QTableWidgetItem(dbentry[3]))
+
+         connection.close()
          
     def plotForce(self):
         p1=0
@@ -358,38 +386,68 @@ class MainWindow(QMainWindow):
             self.plotVelocity()
         elif tat=='Mass':
             self.plotMass()
-            
-
+    
+    def upStatus(self,msg,dstime):
+        now =time.time()
+        if now-self.statust>2:
+            self.statusBar.showMessage(msg,dstime)
+   
     def readStatus(self,ix,cur,tot):
         if ix==0: 
             self.start=time.time()
             return
         if ix==1:
-            self.statusBar.showMessage('Reading Force Files {0}/{1}'.\
+            self.upStatus('Reading Force Files {0}/{1}'.\
                                        format(cur,tot),100)
             if cur>2:
                 self.replot()
         elif ix==2:
-            self.statusBar.showMessage('Reading Environmentals',1000)
+            self.upStatus('Reading Environmentals',1000)
         elif ix==3:
-            self.statusBar.showMessage('Reading Velo Files {0}/{1}'.\
+            self.upStatus('Reading Velo Files {0}/{1}'.\
                                        format(cur,tot),100)
         elif ix==99:
             dt = time.time()- self.start 
             kda.fitVelo( int(self.sbOrder.value() ),-1)
-            self.statusBar.showMessage('Reading completed in {0:3.1f} seconds'.\
+            kda.calcforce()
+
+            self.upStatus('Reading completed in {0:3.1f} seconds'.\
                                        format(dt),2000)
             self.sblabel.setText(kda.title)
             self.sbSupports.setValue(kda.nrknots)
             self.idle=True
-            if kda.hasresult:
+            #if kda.hasresult:# and np.isnan(kda.mass)==False:
+            if np.isnan(kda.mass):
+                nitem =QTableWidgetItem('n/a') 
+            else:
                 nitem =QTableWidgetItem('{0:,.4f}'.format(kda.mass*1e3) )
-                nitem.setTextAlignment(int(Qt.AlignRight | Qt.AlignVCenter))
-                self.mytable.setItem(self.calcrow,1,nitem)
+            nitem.setTextAlignment(int(Qt.AlignRight | Qt.AlignVCenter))
+            self.mytable.setItem(self.calcrow,1,nitem)
+            if np.isnan(kda.massunc):
+                nitem =QTableWidgetItem('n/a') 
+            else:
                 nitem =QTableWidgetItem('{0:6.4f}'.format(kda.massunc*1e3))
-                nitem.setTextAlignment(int(Qt.AlignRight | Qt.AlignVCenter))
-                self.mytable.setItem(self.calcrow,2,nitem)
-                self.mytable.setItem(self.calcrow,3,QTableWidgetItem(kda.title))
+            nitem.setTextAlignment(int(Qt.AlignRight | Qt.AlignVCenter))
+            self.mytable.setItem(self.calcrow,2,nitem)
+            self.mytable.setItem(self.calcrow,3,QTableWidgetItem(kda.title))
+            mass = kda.mass
+            massunc = kda.massunc
+            if np.isnan(mass):
+                mass=-9e99
+            if np.isnan(massunc):
+                massunc=-9e99
+
+            mycmd ="""
+            replace into k2data (run,value, uncertainty,title)
+            values  ("{0}",{1},{2},"{3}");""".\
+               format(self.runid,mass,massunc,kda.title)
+            connection = sqlite3.connect('k2viewer.db')
+            cursor = connection.cursor()
+            cursor.execute(mycmd)
+            connection.commit()
+            connection.close()
+
+                   
             
         #self.replot()
             
@@ -399,8 +457,8 @@ class MainWindow(QMainWindow):
         if self.idle:   
             self.idle=False
             self.calcrow = item.row()
-            oo=self.mytable.item(item.row(), 0).text()
-            filePath = os.path.join(self.bd,oo[0:4],oo[4:6],oo[6])
+            self.runid =self.mytable.item(item.row(), 0).text()
+            filePath = os.path.join(self.bd,self.runid[0:4],self.runid[4:6],self.runid[6])
             kda.setbd0(filePath)
             self.obj = Worker()  # no parent!
             self.thread = QThread()  # no parent!
@@ -411,7 +469,8 @@ class MainWindow(QMainWindow):
             self.thread.start()
         else:
             self.statusBar.showMessage(\
-            'Wait till last run is processed',2000)
+            'Wait till last run is processed',4000)
+            self.statust=time.time()
 
 class MyTabWidget(QWidget): 
     def __init__(self, parent): 

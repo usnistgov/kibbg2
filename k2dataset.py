@@ -30,6 +30,7 @@ class k2DataSet():
 
     def clearForce(self):
         self.mutex.lock()
+        self.title='no title set'
         self.ton=[]
         self.Uon=[]
         self.tof=[]
@@ -196,6 +197,7 @@ class k2DataSet():
         self.velogrp=0
         self.hasvelofit=False
         self.hasspline=False
+        self.nrknots=2
         self.vt1=[]
         self.vt2=[]
         self.vt=[]
@@ -255,6 +257,17 @@ class k2DataSet():
                 yield Sco
     
     def fitVelo(self,order=4,nrknots=-1): 
+        self.mutex.lock()
+        self.hasvelofit=False
+        self.xs = np.array([])
+        self.vblt = np.array([])
+        self.vblv = np.array([])
+        self.fC2 = 0
+        self.fNDF = 0        
+        self.sblt = np.array([])
+        self.sblv = np.array([])        
+        self.mutex.unlock()
+
         if len(self.vt1)<20:
             return
         zmin = min(self.vz)
@@ -294,9 +307,9 @@ class k2DataSet():
         self.fC2 = fC2
         self.fNDF = fNDF        
         self.sblt = sblt
-        self.sblv = sblv        
+        self.sblv = sblv  
+        self.hasvelofit=True
         self.mutex.unlock()
-        self.calcforce()
         
     def calcvelo(self,ts):
         if self.hasspline:
@@ -305,6 +318,16 @@ class k2DataSet():
         return np.poly1d(pf)(ts)
       
     def calcforce(self):   
+        self.mass=float("nan")
+        self.massunc=float("nan")
+        self.hasresult=False
+        if self.hasOn==False:
+            return
+        if self.hasOff==False:
+            return
+        if self.hasvelofit==False:
+            return
+            
         ts = myspline.xfscale(self.Fdata[:,0],0,self.maxt)
         bls = self.calcvelo(ts)
         self.Fdata[:,3]=self.Fdata[:,1]*bls # in mN
@@ -324,9 +347,13 @@ class k2DataSet():
             unc.append(np.sqrt(var)/self.g*denscorr)
         Fresult=np.vstack((time,vals,unc)).T
         self.Fresult=Fresult
-        self.mass = np.sum(self.Fresult[:,1]/self.Fresult[:,2]**2)/\
-            np.sum(1/self.Fresult[:,2]**2)
-        self.massunc = np.sqrt(1/np.sum(1/self.Fresult[:,2]**2))
+        denom =np.sum(1/self.Fresult[:,2]**2)
+        if denom !=0 and not np.isnan(denom):
+            self.mass = np.sum(self.Fresult[:,1]/self.Fresult[:,2]**2)/denom        
+            self.massunc = np.sqrt(1/denom)
+        else:
+            self.mass =np.mean(self.Fresult[:,1])
+            self.massunc=float("nan")
 
         self.hasresult=True
         

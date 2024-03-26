@@ -83,8 +83,11 @@ def SwanFilterWithVar(y,p):
     w = X.T*(A*A.T).I/(X.T*(A*A.T).I*X)*A
     Y=A*np.matrix(y).T
     ret = (w*np.matrix(y).T)[0,0]
-    var = ((Y-ret*X).T*(A*A.T).I*(Y-ret*X)/(N-p-1))[0,0]
-    varo = (var/(X.T*(A*A.T).I*X))[0,0]
+    if N-p>1:
+        var = ((Y-ret*X).T*(A*A.T).I*(Y-ret*X)/(N-p-1))[0,0]
+        varo = (var/(X.T*(A*A.T).I*X))[0,0]
+    else:
+        varo=float("nan")
     return ret,varo
 
 
