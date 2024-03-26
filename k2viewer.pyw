@@ -7,7 +7,15 @@ import traceback
 #https://realpython.com/python-pyqt-qthread/
 #https://stackoverflow.com/questions/6783194/background-thread-with-qthread-in-pyqt
 #
-from PyQt5.QtCore import QSize, QMutex, QObject, QThread, pyqtSignal, pyqtSlot
+from PyQt5.QtCore import (
+    Qt,
+    QSize,
+    QMutex, 
+    QObject, 
+    QThread, 
+    pyqtSignal, 
+    pyqtSlot )
+    
 from PyQt5.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -23,7 +31,7 @@ from PyQt5.QtWidgets import (
     QSpacerItem,
     QSizePolicy,
     QStatusBar,
-    QSpinBox
+    QSpinBox,
 )
 import mplwidget
 import numpy as np
@@ -68,13 +76,28 @@ class MainWindow(QMainWindow):
             #self.bd = r"K:\TableTopWattBalance\KIBB-g2\DATA"
         #else:
         self.bd='..\DATA'
+        self.idle=True
 
         self.thread = QThread()
         self.setWindowTitle("Kibb-g2 Viewer")
-        self.setFixedSize(QSize(1200, 600))
+        self.setFixedSize(QSize(1300, 600))
         
-        self.mytable = QTableWidget(2,1) 
-        self.mytable.setFixedWidth(200)
+        self.mytable = QTableWidget(2,4)
+        self.mytable.setHorizontalHeaderItem(0,\
+                QTableWidgetItem("run"))
+        self.mytable.setHorizontalHeaderItem(1,\
+                QTableWidgetItem("mass/mg"))
+        self.mytable.setHorizontalHeaderItem(2,\
+                QTableWidgetItem("unc/mg"))
+        self.mytable.setHorizontalHeaderItem(3,\
+                QTableWidgetItem("title"))
+
+        self.mytable.setColumnWidth(0, 100)
+        self.mytable.setColumnWidth(1, 100)
+        self.mytable.setColumnWidth(2, 70)
+        self.mytable.setColumnWidth(3, 200)
+
+        self.mytable.setFixedWidth(380)
         self.Brefresh = QPushButton("Reload")
         
         ### The plot windows
@@ -148,6 +171,7 @@ class MainWindow(QMainWindow):
     def loadTable(self):
          self.mytable.clearContents()
          self.mytable.setRowCount(0)
+  
          for s1 in sorted([ f.path for f in os.scandir(self.bd) \
                            if f.is_dir() ],reverse=True):
             yymm=os.path.split(s1)[-1]
@@ -357,37 +381,44 @@ class MainWindow(QMainWindow):
                                        format(dt),2000)
             self.sblabel.setText(kda.title)
             self.sbSupports.setValue(kda.nrknots)
+            self.idle=True
+            if kda.hasresult:
+                nitem =QTableWidgetItem('{0:,.4f}'.format(kda.mass*1e3) )
+                nitem.setTextAlignment(int(Qt.AlignRight | Qt.AlignVCenter))
+                self.mytable.setItem(self.calcrow,1,nitem)
+                nitem =QTableWidgetItem('{0:5.4f}'.format(kda.massunc*1e3))
+                nitem.setTextAlignment(int(Qt.AlignRight | Qt.AlignVCenter))
+                self.mytable.setItem(self.calcrow,2,nitem)
+                self.mytable.setItem(self.calcrow,3,QTableWidgetItem(kda.title))
             
         #self.replot()
             
         
 
     def on_table_clicked(self,item):
-        oo=self.mytable.item(item.row(), item.column()).text()
-        filePath = os.path.join(self.bd,oo[0:4],oo[4:6],oo[6])
-        kda.setbd0(filePath)
-        self.obj = Worker()  # no parent!
-        self.thread = QThread()  # no parent!
-        # 2 - Connect Worker`s Signals to Form method slots to post data.
-        self.obj.intReady.connect(self.readStatus)
-        # 3 - Move the Worker object to the Thread object
-        self.obj.moveToThread(self.thread)
-        # 4 - Connect Worker Signals to the Thread slots
-        self.obj.finished.connect(self.thread.quit)
-        # 5 - Connect Thread started signal to Worker operational slot method
-        self.thread.started.connect(self.obj.procCounter)
+        if self.idle:   
+            self.idle=False
+            self.calcrow = item.row()
+            oo=self.mytable.item(item.row(), 0).text()
+            filePath = os.path.join(self.bd,oo[0:4],oo[4:6],oo[6])
+            kda.setbd0(filePath)
+            self.obj = Worker()  # no parent!
+            self.thread = QThread()  # no parent!
+            self.obj.intReady.connect(self.readStatus)
+            self.obj.moveToThread(self.thread)
+            self.obj.finished.connect(self.thread.quit)
+            self.thread.started.connect(self.obj.procCounter)
+            self.thread.start()
+        else:
+            self.statusBar.showMessage(\
+            'Wait till last run is processed',2000)
 
-       # * - Thread finished signal will close the app if you want!
-       #self.thread.finished.connect(app.exit)
-
-       # 6 - Start the thread
-        self.thread.start()
-      
 class MyTabWidget(QWidget): 
     def __init__(self, parent): 
         super(QWidget, self).__init__(parent) 
-        self.layout = QVBoxLayout(self) 
   
+        self.layout = QVBoxLayout(self) 
+
         # Initialize tab screen 
         self.tabs = QTabWidget() 
         self.tab1 = QWidget() 
@@ -397,18 +428,13 @@ class MyTabWidget(QWidget):
         self.tabs.resize(300, 200) 
   
         # Add tabs 
-        self.tabs.addTab(self.tab1, "Force") 
-        self.tabs.addTab(self.tab2, "Environmentals") 
-        self.tabs.addTab(self.tab3, "Velocity") 
-        self.tabs.addTab(self.tab4, "Mass") 
   
         # Create first tab 
-        self.tab1.layout = QHBoxLayout(self)
-        tab1ctrl = QVBoxLayout(self)
-        
+        self.tab1.layout = QHBoxLayout()
+        tab1ctrl = QVBoxLayout()
         l1 = QLabel() 
         l1.setText("Forcemode") 
-        h1 = QHBoxLayout(self)
+        h1 = QHBoxLayout()
         l2 = QLabel() 
         l2.setText("subtract mean")
         h1.addWidget(l2)
@@ -423,29 +449,27 @@ class MyTabWidget(QWidget):
         tab1ctrl.addItem(verticalSpacer)
         
         
-        
-        
         self.tab1.layout.addLayout(tab1ctrl)
         self.tab1.layout.addWidget(parent.mplfor) 
         self.tab1.setLayout(self.tab1.layout) 
         
         # Create sceond tab 
-        self.tab2.layout = QHBoxLayout(self)
+        self.tab2.layout = QHBoxLayout()
         self.tab2.layout.addWidget(parent.mplenv)
         self.tab2.setLayout(self.tab2.layout) 
     
         # Create third tab 
-        self.tab3.layout = QHBoxLayout(self)
-        tab3ctrl = QVBoxLayout(self)
+        self.tab3.layout = QHBoxLayout()
+        tab3ctrl = QVBoxLayout()
         l1 = QLabel() 
         l1.setText("Velocitymode") 
-        h1 = QHBoxLayout(self)
+        h1 = QHBoxLayout()
         l2 = QLabel() 
         l2.setText("order")
         h1.addWidget(l2)
         h1.addWidget(parent.sbOrder)
         
-        h2 = QHBoxLayout(self)
+        h2 = QHBoxLayout()
         l3 = QLabel() 
         l3.setText("supports")
         h2.addWidget(l3)
@@ -467,11 +491,11 @@ class MyTabWidget(QWidget):
         
 
         # Create forth tab 
-        self.tab4.layout = QHBoxLayout(self)
+        self.tab4.layout = QHBoxLayout()
         self.tab4.layout.addWidget(parent.mplmass)
         self.tab4.setLayout(self.tab4.layout) 
         
-        h1 = QHBoxLayout(self)
+        h1 = QHBoxLayout()
         h1.addWidget(parent.lares)
         
         verticalSpacer = QSpacerItem(20, 40, 
@@ -488,6 +512,11 @@ class MyTabWidget(QWidget):
         # Add tabs to widget 
         self.layout.addWidget(self.tabs) 
         self.setLayout(self.layout) 
+        self.tabs.addTab(self.tab1, "Force") 
+        self.tabs.addTab(self.tab2, "Environmentals") 
+        self.tabs.addTab(self.tab3, "Velocity") 
+        self.tabs.addTab(self.tab4, "Mass") 
+
 
 
 def excepthook(exc_type, exc_value, exc_tb):

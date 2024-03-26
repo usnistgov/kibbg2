@@ -193,6 +193,7 @@ class k2DataSet():
 
     def clearVelo(self):
         self.mutex.lock()
+        self.velogrp=0
         self.hasvelofit=False
         self.hasspline=False
         self.vt1=[]
@@ -250,6 +251,7 @@ class k2DataSet():
                 self.mutex.unlock()
                 #print(f,min(data[:,0]))
                 Sco+=1
+                self.velogrp=Sco
                 yield Sco
     
     def fitVelo(self,order=4,nrknots=-1): 
@@ -262,13 +264,11 @@ class k2DataSet():
             self.vt,self.vz,self.vv,self.vV,self.vS,zmin,zmax,order)
         self.maxt = self.getmaxt()
         xs = myspline.xfscale(vblt,0,self.maxt)
-        if len(vblv)>2:
+        if len(vblv)>6 and self.velogrp>6:
             if nrknots==-1:
                 mknr = min(12,len(vblv))
-                print('mknr = ',mknr)
                 knr =range(2,mknr)       
                 c2=[]
-                print('mknr = ',knr)   
                 for kn in knr:
                     myspl = myspline.BSpline(kn,3,lam=0)
                     c2.append(myspl.fit(xs,vblv))
@@ -283,7 +283,8 @@ class k2DataSet():
         else:
             self.nrknots=2
             sblt_ =np.linspace(0,0.99,100)
-            sblv = np.interp(sblt_, xs , vblv)
+            pf = np.polyfit(xs , vblv,1)
+            sblv = np.poly1d(pf)(sblt_)
             sblt= myspline.xunscale(sblt_,0,self.maxt) 
             
         self.mutex.lock()
@@ -300,12 +301,9 @@ class k2DataSet():
     def calcvelo(self,ts):
         if self.hasspline:
             return self.myspl.calc(ts)
-        return np.interp(ts, self.xs , self.vblv)
-
-            
-        
-        
-        
+        pf = np.polyfit(self.xs , self.vblv,1)
+        return np.poly1d(pf)(ts)
+      
     def calcforce(self):   
         ts = myspline.xfscale(self.Fdata[:,0],0,self.maxt)
         bls = self.calcvelo(ts)
@@ -326,6 +324,10 @@ class k2DataSet():
             unc.append(np.sqrt(var)/self.g*denscorr)
         Fresult=np.vstack((time,vals,unc)).T
         self.Fresult=Fresult
+        self.mass = np.sum(self.Fresult[:,1]/self.Fresult[:,2]**2)/\
+            np.sum(1/self.Fresult[:,2]**2)
+        self.massunc = np.sqrt(1/np.sum(1/self.Fresult[:,2]**2))
+
         self.hasresult=True
         
         
