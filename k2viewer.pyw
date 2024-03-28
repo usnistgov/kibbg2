@@ -217,13 +217,14 @@ class MainWindow(QMainWindow):
                                     continue
                                 dbentry=dbentry[0]
                                 #print(dbentry)
-                                if dbentry[1]>-9e99:
+                                print(dbentry[1])
+                                if dbentry[1]>-9e96:
                                     nitem =QTableWidgetItem('{0:,.4f}'.format(dbentry[1]*1e3) )
                                 else:
                                     nitem =QTableWidgetItem('n/a')
                                 nitem.setTextAlignment(int(Qt.AlignRight | Qt.AlignVCenter))
                                 self.mytable.setItem(row_number,1,nitem)
-                                if dbentry[2]>-9e99:
+                                if dbentry[2]>-9e96:
                                     nitem =QTableWidgetItem('{0:6.4f}'.format(dbentry[2]*1e3))
                                 else:
                                     nitem =QTableWidgetItem('n/a')                                
@@ -628,7 +629,7 @@ class MyTabWidget(QWidget):
     
         # Create fifth tab 
         self.tab5.layout =  QGridLayout()
-        self.tab5.layout.setColumnStretch(8, 2)
+        self.tab5.layout.setColumnStretch(12, 3)
         self.tab5.layout.addWidget(QLabel('Item'),0,0)
         self.tab5.layout.addWidget(QLabel('rel. unc/ppm'),0,1)
         
