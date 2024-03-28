@@ -14,6 +14,9 @@ import myfilters
 class k2DataSet():
     def __init__(self,mutex):
         self.bd0 = ''
+        self.relUncTypeB = 3
+        self.relUnTypeA = 9e99
+        self.relUncTot = 9e99
         self.hasresult=False
         self.hasvelofit=False
         self.mutex =mutex
@@ -21,6 +24,11 @@ class k2DataSet():
         self.clearVelo()
         self.clearEnv()
         
+    def setRefMass(self,refmass):
+        self.mutex.lock()
+        self.refMass=refmass
+        self.hasRefMass = True
+        self.mutex.unlock()
         
     def setbd0(self,bd0):
         self.bd0= bd0
@@ -31,6 +39,8 @@ class k2DataSet():
     def clearForce(self):
         self.mutex.lock()
         self.title='no title set'
+        self.relUnTypeA = 9e99
+        self.relUncTot = 9e99
         self.ton=[]
         self.Uon=[]
         self.tof=[]
@@ -39,6 +49,7 @@ class k2DataSet():
         self.Iaon=[]
         self.taof=[]
         self.Iaof=[]
+        self.hasRefMass = False
         self.mutex.unlock()
 
     def clearEnv(self):
@@ -330,7 +341,7 @@ class k2DataSet():
             
         ts = myspline.xfscale(self.Fdata[:,0],0,self.maxt)
         bls = self.calcvelo(ts)
-        self.Fdata[:,3]=self.Fdata[:,1]*bls # in mN
+        self.Fdata[:,3]=self.Fdata[:,1]*bls*1000*(1-6e-6) # in mN
         time=[]
         vals=[]
         unc=[]
@@ -348,12 +359,20 @@ class k2DataSet():
         Fresult=np.vstack((time,vals,unc)).T
         self.Fresult=Fresult
         denom =np.sum(1/self.Fresult[:,2]**2)
+        
         if denom !=0 and not np.isnan(denom):
-            self.mass = np.sum(self.Fresult[:,1]/self.Fresult[:,2]**2)/denom        
-            self.massunc = np.sqrt(1/denom)
+            self.mass = np.sum(self.Fresult[:,1]/self.Fresult[:,2]**2)/denom  
+            absunc = 3e-6*self.mass
+            self.massunc = np.sqrt(1/denom+absunc**2)
+            self.relUncTypeA = np.sqrt(1/denom)/self.mass*1e6 
+            self.relUncTot = np.sqrt(self.relUncTypeA**2+self.relUncTypeB**2)
         else:
             self.mass =np.mean(self.Fresult[:,1])
+            absunc = 3e-6*self.mass
             self.massunc=float("nan")
+            self.relUncTypeA =9e99
+            self.relUncTot = 9e99
+        #print('A={0:f} B={1:f} Tot={2:f}'.format(self.relUncTypeA,self.relUncTypeB,self.relUncTot))
 
         self.hasresult=True
         

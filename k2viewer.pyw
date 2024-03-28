@@ -15,7 +15,8 @@ from PyQt5.QtCore import (
     QThread, 
     pyqtSignal, 
     pyqtSlot )
-    
+
+from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -24,6 +25,7 @@ from PyQt5.QtWidgets import (
     QPushButton,
     QVBoxLayout,
     QHBoxLayout,
+    QGridLayout,
     QWidget,
     QTableWidget,
     QTableWidgetItem,
@@ -32,6 +34,8 @@ from PyQt5.QtWidgets import (
     QSizePolicy,
     QStatusBar,
     QSpinBox,
+    QDoubleSpinBox,
+    QAbstractSpinBox
 )
 import mplwidget
 import numpy as np
@@ -95,11 +99,11 @@ class MainWindow(QMainWindow):
                 QTableWidgetItem("title"))
 
         self.mytable.setColumnWidth(0, 100)
-        self.mytable.setColumnWidth(1, 100)
+        self.mytable.setColumnWidth(1, 120)
         self.mytable.setColumnWidth(2, 70)
         self.mytable.setColumnWidth(3, 200)
 
-        self.mytable.setFixedWidth(380)
+        self.mytable.setFixedWidth(400)
         self.Brefresh = QPushButton("Reload")
         
         ### The plot windows
@@ -114,18 +118,28 @@ class MainWindow(QMainWindow):
         self.cbForMean  = QCheckBox()
         self.sbOrder    = QSpinBox()
         self.sbSupports = QSpinBox()
+        self.sbMass     = QDoubleSpinBox()
         self.sbOrder.setValue(4)
         self.sbOrder.setMinimum(1)
         self.sbOrder.setMaximum(10)
+        
         self.sbSupports.setValue(5)
         self.sbSupports.setMinimum(2)
         self.sbSupports.setMaximum(20)
-        
+   
+        self.sbMass.setMinimumWidth(100)
+        self.sbMass.setMinimum(0)
+        self.sbMass.setMaximum(99999)
+        self.sbMass.setDecimals(4)
+        self.sbMass.setButtonSymbols(QAbstractSpinBox.NoButtons)
+        self.sbMass.setKeyboardTracking(False)
         
         ### global labels
         
-        self.sblabel = QLabel("Click on a run") 
-        self.lares   = QLabel("") 
+        self.sblabel  = QLabel("Click on a run") 
+        self.lares    = QLabel("") 
+        self.laUncA   = QLabel("n/a")
+        self.laUncTot = QLabel("n/a")
         
         
         ### Status bar
@@ -167,6 +181,8 @@ class MainWindow(QMainWindow):
         self.tabWidget.tabs.currentChanged.connect(self.replot)
         self.sbOrder.valueChanged.connect(self.recalcvelo)
         self.sbSupports.valueChanged.connect(self.recalcvelo)
+        self.sbMass.valueChanged.connect(self.gotmassval)
+        
 
     
 
@@ -342,30 +358,63 @@ class MainWindow(QMainWindow):
         lines,cols = np.shape(kda.Fresult)
         if lines==0: 
             return
-        mean = np.sum(kda.Fresult[:,1]/kda.Fresult[:,2]**2)/np.sum(1/kda.Fresult[:,2]**2)
-        sig = np.sqrt(1/np.sum(1/kda.Fresult[:,2]**2))
+        mean = kda.mass
+        sig = kda.massunc
+        #mean = np.sum(kda.Fresult[:,1]/kda.Fresult[:,2]**2)/np.sum(1/kda.Fresult[:,2]**2)
+        #sig = np.sqrt(1/np.sum(1/kda.Fresult[:,2]**2))
         self.mplmass.canvas.ax1.errorbar(
             kda.Fresult[:,0]*tmul,\
             kda.Fresult[:,1],kda.Fresult[:,2],fmt='bo')
-        mint=np.min(kda.Fresult[:,0]*tmul)
-        maxt=np.max(kda.Fresult[:,0]*tmul)
+        #mint=np.min(kda.Fresult[:,0]*tmul)
+        #maxt=np.max(kda.Fresult[:,0]*tmul)
         mutex.unlock()
-        self.mplmass.canvas.ax1.plot((mint,maxt),(mean,mean),c='k',linestyle='dashed',lw=2)
-        self.mplmass.canvas.ax1.plot((mint,maxt),(mean+sig,mean+sig),c='r',linestyle='dashdot')
-        self.mplmass.canvas.ax1.plot((mint,maxt),(mean-sig,mean-sig),c='r',linestyle='dashdot')
-        self.mplmass.canvas.ax1.fill_between((mint,maxt), (mean-sig,mean-sig),(mean+sig,mean+sig),color='r', alpha=0.2)
+        be,en =self.mplmass.canvas.ax1.get_xlim()
+        self.mplmass.canvas.ax1.plot((be,en),(mean,mean),c='k',linestyle='dashed',lw=2)
+        self.mplmass.canvas.ax1.plot((be,en),(mean+sig,mean+sig),\
+                                     c='r',linestyle='dashdot')
+        self.mplmass.canvas.ax1.plot((be,en),(mean-sig,mean-sig),\
+                                     c='r',linestyle='dashdot')
+        self.mplmass.canvas.ax1.fill_between((be,en), (mean-sig,mean-sig),\
+                                (mean+sig,mean+sig),color='r', alpha=0.2)
+        self.mplmass.canvas.ax1.set_xlim(be,en)
+        if kda.hasRefMass:
+            be,en =self.mplmass.canvas.ax1.get_xlim()
+            self.mplmass.canvas.ax1.plot((be,en),
+                                         (kda.refMass,kda.refMass),c='m',
+                                         linestyle='dotted',lw=4)
+            self.mplmass.canvas.ax1.set_xlim(be,en)
+            
         be,en =self.mplmass.canvas.ax1.get_ylim()
+            
         #self.mplmass.canvas.draw() 
         me =0.5*(be+en)
+        if kda.hasRefMass:
+            me =kda.refMass
         self.mplmass.canvas.bx1.set_ylim((be/me-1)*1e6,(en/me-1)*1e6)
         self.mplmass.canvas.ax1.set_xlabel(tla)    
-        self.mplmass.canvas.ax1.set_ylabel('mass /g')
+        self.mplmass.canvas.ax1.set_ylabel('mass /mg')
         self.mplmass.canvas.bx1.set_ylabel('rel. change /ppm')
         self.mplmass.canvas.bx1.ticklabel_format(useOffset=False)
         self.mplmass.canvas.ax1.ticklabel_format(useOffset=False)
         self.mplmass.canvas.draw() 
+        
+        
+    def plotUnc(self):
+        #print('uu: ',kda.relUncTypeA ,kda.relUncTot )
+        if kda.relUncTypeA <9e99:
+            self.laUncA.setText('{0:3.1f}'.format(kda.relUncTypeA))
+        else:
+            self.laUncA.setText("n/a")
+        if kda.relUncTot<9e99:
+           self.laUncTot.setText('{0:3.1f}'.format(kda.relUncTot))
+        else:
+            self.laUncTot.setText("n/a")
 
 
+    def gotmassval(self,val):
+        kda.setRefMass(val)
+        self.plotMass()
+        
 
 
     def recalcvelo(self):
@@ -386,6 +435,8 @@ class MainWindow(QMainWindow):
             self.plotVelocity()
         elif tat=='Mass':
             self.plotMass()
+        elif tat=='Uncertainty':
+            self.plotUnc()
     
     def upStatus(self,msg,dstime):
         now =time.time()
@@ -420,13 +471,13 @@ class MainWindow(QMainWindow):
             if np.isnan(kda.mass):
                 nitem =QTableWidgetItem('n/a') 
             else:
-                nitem =QTableWidgetItem('{0:,.4f}'.format(kda.mass*1e3) )
+                nitem =QTableWidgetItem('{0:,.4f}'.format(kda.mass) )
             nitem.setTextAlignment(int(Qt.AlignRight | Qt.AlignVCenter))
             self.mytable.setItem(self.calcrow,1,nitem)
             if np.isnan(kda.massunc):
                 nitem =QTableWidgetItem('n/a') 
             else:
-                nitem =QTableWidgetItem('{0:6.4f}'.format(kda.massunc*1e3))
+                nitem =QTableWidgetItem('{0:6.4f}'.format(kda.massunc))
             nitem.setTextAlignment(int(Qt.AlignRight | Qt.AlignVCenter))
             self.mytable.setItem(self.calcrow,2,nitem)
             self.mytable.setItem(self.calcrow,3,QTableWidgetItem(kda.title))
@@ -440,22 +491,20 @@ class MainWindow(QMainWindow):
             mycmd ="""
             replace into k2data (run,value, uncertainty,title)
             values  ("{0}",{1},{2},"{3}");""".\
-               format(self.runid,mass,massunc,kda.title)
+               format(self.runid,mass/1000,massunc/1000,kda.title)
             connection = sqlite3.connect('k2viewer.db')
             cursor = connection.cursor()
             cursor.execute(mycmd)
             connection.commit()
-            connection.close()
-
-                   
-            
-        #self.replot()
+            connection.close()    
+            self.replot()
             
         
 
     def on_table_clicked(self,item):
-        if self.idle:   
+        if self.idle:
             self.idle=False
+            self.sbMass.clear()
             self.calcrow = item.row()
             self.runid =self.mytable.item(item.row(), 0).text()
             filePath = os.path.join(self.bd,self.runid[0:4],self.runid[4:6],self.runid[6])
@@ -484,6 +533,7 @@ class MyTabWidget(QWidget):
         self.tab2 = QWidget() 
         self.tab3 = QWidget() 
         self.tab4 = QWidget() 
+        self.tab5 = QWidget() 
         self.tabs.resize(300, 200) 
   
         # Add tabs 
@@ -539,6 +589,8 @@ class MyTabWidget(QWidget):
                                      QSizePolicy.Minimum, 
                                      QSizePolicy.Expanding)
 
+
+
         tab3ctrl.addWidget(l1)
         tab3ctrl.addLayout(h1)
         tab3ctrl.addLayout(h2)
@@ -551,22 +603,66 @@ class MyTabWidget(QWidget):
 
         # Create forth tab 
         self.tab4.layout = QHBoxLayout()
-        self.tab4.layout.addWidget(parent.mplmass)
-        self.tab4.setLayout(self.tab4.layout) 
+        tab4ctrl = QVBoxLayout()
         
-        h1 = QHBoxLayout()
-        h1.addWidget(parent.lares)
+        #h4 = QHBoxLayout()
+        l4b = QLabel() 
+        l4b.setText("ref. mass (mg):")
+        #h4.addWidget(l4b)
+        #h4.addWidget(parent.sbMass)
         
         verticalSpacer = QSpacerItem(20, 40, 
                                      QSizePolicy.Minimum, 
                                      QSizePolicy.Expanding)
+        l4a = QLabel() 
+        l4a.setText("mass")
 
-        tab3ctrl.addWidget(l1)
-        tab3ctrl.addLayout(h1)
-        tab3ctrl.addItem(verticalSpacer)
+        tab4ctrl.addWidget(l4a)
+        tab4ctrl.addWidget(l4b)
+        tab4ctrl.addWidget(parent.sbMass)
+        tab4ctrl.addItem(verticalSpacer)
         
+        self.tab4.layout.addLayout(tab4ctrl)
+        self.tab4.layout.addWidget(parent.mplmass)
+        self.tab4.setLayout(self.tab4.layout) 
+    
+        # Create fifth tab 
+        self.tab5.layout =  QGridLayout()
+        self.tab5.layout.setColumnStretch(8, 2)
+        self.tab5.layout.addWidget(QLabel('Item'),0,0)
+        self.tab5.layout.addWidget(QLabel('rel. unc/ppm'),0,1)
         
+        self.tab5.layout.addWidget(QLabel('Resistor'),1,0)
+        self.tab5.layout.addWidget(QLabel('1.4'),1,1)
         
+        self.tab5.layout.addWidget(QLabel('Voltmeter'),2,0)
+        self.tab5.layout.addWidget(QLabel('1.0'),2,1)
+ 
+        self.tab5.layout.addWidget(QLabel('mass position'),3,0)
+        self.tab5.layout.addWidget(QLabel('1.0'),3,1)
+
+        self.tab5.layout.addWidget(QLabel('g'),4,0)
+        self.tab5.layout.addWidget(QLabel('2.0'),4,1)
+        
+        self.tab5.layout.addWidget(QLabel('verticality'),5,0)
+        self.tab5.layout.addWidget(QLabel('0.5'),5,1)
+
+        self.tab5.layout.addWidget(QLabel('statistical'),6,0)
+        self.tab5.layout.addWidget(parent.laUncA,6,1)
+
+        ltot = QLabel('total')
+        self.tab5.layout.addWidget(ltot,7,0)
+        self.tab5.layout.addWidget(parent.laUncTot,7,1)
+        
+        myFont=QFont()
+        myFont.setBold(True)
+        parent.laUncTot.setFont(myFont)
+        ltot.setFont(myFont)
+
+
+        self.tab5.setLayout(self.tab5.layout)
+            
+ 
   
         # Add tabs to widget 
         self.layout.addWidget(self.tabs) 
@@ -575,6 +671,7 @@ class MyTabWidget(QWidget):
         self.tabs.addTab(self.tab2, "Environmentals") 
         self.tabs.addTab(self.tab3, "Velocity") 
         self.tabs.addTab(self.tab4, "Mass") 
+        self.tabs.addTab(self.tab5, "Uncertainty") 
 
 
 
