@@ -217,7 +217,6 @@ class MainWindow(QMainWindow):
                                     continue
                                 dbentry=dbentry[0]
                                 #print(dbentry)
-                                print(dbentry[1])
                                 if dbentry[1]>-9e96:
                                     nitem =QTableWidgetItem('{0:,.4f}'.format(dbentry[1]*1e3) )
                                 else:
@@ -422,7 +421,12 @@ class MainWindow(QMainWindow):
         order = int(self.sbOrder.value() )
         supports = int(self.sbSupports.value() )
         kda.fitVelo(order,supports)
-        self.plotVelocity()
+        #self.plotVelocity()
+        kda.calcforce()
+        self.updateTable()
+        self.replot()
+
+
 
 
     def replot(self):
@@ -441,8 +445,44 @@ class MainWindow(QMainWindow):
     
     def upStatus(self,msg,dstime):
         now =time.time()
-        if now-self.statust>2:
-            self.statusBar.showMessage(msg,dstime)
+        if now-self.statust>1:
+            self.statusBar.showMessage(msg,1000)
+            self.statust=time.time()
+   
+            
+    def updateTable(self):
+        #if kda.hasresult:# and np.isnan(kda.mass)==False:
+        if np.isnan(kda.mass):
+            nitem =QTableWidgetItem('n/a') 
+        else:
+            nitem =QTableWidgetItem('{0:,.4f}'.format(kda.mass) )
+        nitem.setTextAlignment(int(Qt.AlignRight | Qt.AlignVCenter))
+        self.mytable.setItem(self.calcrow,1,nitem)
+        if np.isnan(kda.massunc):
+            nitem =QTableWidgetItem('n/a') 
+        else:
+            nitem =QTableWidgetItem('{0:6.4f}'.format(kda.massunc))
+        nitem.setTextAlignment(int(Qt.AlignRight | Qt.AlignVCenter))
+        self.mytable.setItem(self.calcrow,2,nitem)
+        self.mytable.setItem(self.calcrow,3,QTableWidgetItem(kda.title))
+        mass = kda.mass
+        massunc = kda.massunc
+        if np.isnan(mass):
+            mass=-9e99
+        if np.isnan(massunc):
+            massunc=-9e99
+
+        mycmd ="""
+        replace into k2data (run,value, uncertainty,title)
+        values  ("{0}",{1},{2},"{3}");""".\
+           format(self.runid,mass/1000,massunc/1000,kda.title)
+        connection = sqlite3.connect('k2viewer.db')
+        cursor = connection.cursor()
+        cursor.execute(mycmd)
+        connection.commit()
+        connection.close()    
+   
+    
    
     def readStatus(self,ix,cur,tot):
         if ix==0: 
@@ -468,37 +508,11 @@ class MainWindow(QMainWindow):
             self.sblabel.setText(kda.title)
             self.sbSupports.setValue(kda.nrknots)
             self.idle=True
-            #if kda.hasresult:# and np.isnan(kda.mass)==False:
-            if np.isnan(kda.mass):
-                nitem =QTableWidgetItem('n/a') 
-            else:
-                nitem =QTableWidgetItem('{0:,.4f}'.format(kda.mass) )
-            nitem.setTextAlignment(int(Qt.AlignRight | Qt.AlignVCenter))
-            self.mytable.setItem(self.calcrow,1,nitem)
-            if np.isnan(kda.massunc):
-                nitem =QTableWidgetItem('n/a') 
-            else:
-                nitem =QTableWidgetItem('{0:6.4f}'.format(kda.massunc))
-            nitem.setTextAlignment(int(Qt.AlignRight | Qt.AlignVCenter))
-            self.mytable.setItem(self.calcrow,2,nitem)
-            self.mytable.setItem(self.calcrow,3,QTableWidgetItem(kda.title))
-            mass = kda.mass
-            massunc = kda.massunc
-            if np.isnan(mass):
-                mass=-9e99
-            if np.isnan(massunc):
-                massunc=-9e99
-
-            mycmd ="""
-            replace into k2data (run,value, uncertainty,title)
-            values  ("{0}",{1},{2},"{3}");""".\
-               format(self.runid,mass/1000,massunc/1000,kda.title)
-            connection = sqlite3.connect('k2viewer.db')
-            cursor = connection.cursor()
-            cursor.execute(mycmd)
-            connection.commit()
-            connection.close()    
+            self.updateTable()
             self.replot()
+            
+            
+            
             
         
 
@@ -518,10 +532,8 @@ class MainWindow(QMainWindow):
             self.thread.started.connect(self.obj.procCounter)
             self.thread.start()
         else:
-            self.statusBar.showMessage(\
-            'Wait till last run is processed',4000)
-            self.statust=time.time()
-
+            self.upStatus('Wait till last run is processed',4000)
+         
 class MyTabWidget(QWidget): 
     def __init__(self, parent): 
         super(QWidget, self).__init__(parent) 
@@ -632,6 +644,7 @@ class MyTabWidget(QWidget):
         self.tab5.layout.setColumnStretch(12, 3)
         self.tab5.layout.addWidget(QLabel('Item'),0,0)
         self.tab5.layout.addWidget(QLabel('rel. unc/ppm'),0,1)
+        self.tab5.layout.addWidget(QLabel('unc/ug'),0,2)
         
         self.tab5.layout.addWidget(QLabel('Resistor'),1,0)
         self.tab5.layout.addWidget(QLabel('1.4'),1,1)

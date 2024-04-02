@@ -15,7 +15,7 @@ class k2DataSet():
     def __init__(self,mutex):
         self.bd0 = ''
         self.relUncTypeB = 3
-        self.relUnTypeA = 9e99
+        self.relUncTypeA = 9e99
         self.relUncTot = 9e99
         self.hasresult=False
         self.hasvelofit=False
@@ -23,6 +23,16 @@ class k2DataSet():
         self.clearForce()
         self.clearVelo()
         self.clearEnv()
+        
+    def setRelUncs(self):
+        self.relDict={}
+        self.relDict['Resistor']=1.4
+        self.relDict['Voltmeter']=1.4
+        self.relDict['mass position']=1 
+        self.relDict['local acceleration']=2 
+        self.relDict['verticality']=0.5 
+        
+        
         
     def setRefMass(self,refmass):
         self.mutex.lock()
@@ -290,15 +300,17 @@ class k2DataSet():
         xs = myspline.xfscale(vblt,0,self.maxt)
         if len(vblv)>6 and self.velogrp>6:
             if nrknots==-1:
-                mknr = min(12,len(vblv))
+                mknr = min(12,len(vblv))-2
+                print('mknr =',mknr)
                 knr =range(2,mknr)       
                 c2=[]
                 for kn in knr:
-                    myspl = myspline.BSpline(kn,3,lam=0)
+                    print(kn)
+                    myspl = myspline.BSpline(kn,3,lam=1)
                     c2.append(myspl.fit(xs,vblv))
                 nrknots =knr[np.argmin(c2)]
-                self.myspl = myspline.BSpline(nrknots,3,lam=0)
             self.nrknots=nrknots
+            self.myspl = myspline.BSpline(nrknots,3,lam=0)
             self.myspl.fit(xs,vblv)
             sblt_ =np.linspace(0,0.99,100)
             sblv =self.myspl.calc(sblt_)
