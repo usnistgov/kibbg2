@@ -82,7 +82,20 @@ class MyVelos(MyFiles):
         self.piecewise=[]
         for k in range(0,self.maxgrp):
             ix=np.where(np.logical_or(self.blfit[:,2]==k,self.blfit[:,2]==k+1))[0]
-            pfs,cov=np.polyfit(self.blfit[ix,0],self.blfit[ix,1],1,cov=True)
+            if len(self.blfit[ix,0])>2:
+                pfs,cov=np.polyfit(self.blfit[ix,0],self.blfit[ix,1],1,cov=True)
+            elif len(self.blfit[ix,0])==2:
+                pfs=np.polyfit(self.blfit[ix,0],self.blfit[ix,1],1)
+                cov = np.zeros((2,2))
+                cov[0,0] = 7.67111872e-15
+                cov[1,1] = 2.68464606e-08
+            else:
+                pfs = np.zeros(2)
+                pfs[1] =self.blfit[ix,1]
+                cov = np.zeros((2,2))
+                cov[0,0] = 7.67111872e-15
+                cov[1,1] = 2.68464606e-08
+                
             self.cov.append(cov)
             self.piecewise.append(pfs)
       
@@ -148,12 +161,18 @@ class MyForces(MyFiles):
 
     def aveForce(self):
         self.adata =[]
-        for s in range(int(self.maxS)):
+        for s in range(int(self.maxS)+1):
+            print(s)
             ix = np.where(self.data[:,3]==s)[0]
+            print(ix)
             means = np.mean( self.data[ix,:],axis=0)        #order 0-time, 1-z, 2-Current, 3-S, 4-Grp
             stds  = np.std( self.data[ix,:],axis=0,ddof =1) #order 5-time, 6-z, 7-Current, 8-S, 9-Grp
             N = len(self.data[ix,:])
-            stds=stds/np.sqrt(N)
+            if N>1:
+                rtN=np.sqrt(N)
+            else:
+                rtN=1
+            stds=stds/rtN
             if len(self.adata)==0:
                 self.adata  =np.array(np.r_[means,stds])
             else:
