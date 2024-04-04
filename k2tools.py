@@ -66,7 +66,8 @@ def compressibility(temp,press,relHumid):     # in degC, hPa, %
     
 
 
-def FitLikeACanadianOrthoMaster(t,xin,v,V,S,xmin=-5,xmax=5,order=4,x0=0):
+def FitLikeACanadianOrthoMaster(data,zmin=-2.5,zmax=2.5,\
+                                order=4,z0=0):
      #
     #Fitting like a Canadian. 
     #
@@ -74,15 +75,23 @@ def FitLikeACanadianOrthoMaster(t,xin,v,V,S,xmin=-5,xmax=5,order=4,x0=0):
 
     #X  =np.matrix((np.ones(len(t)),v,v*x,v*x**2)).T
 
+    t   = data[:,0]
+    zin = data[:,1]
+    v   = data[:,2]
+    V   = data[:,3]
+    S   = data[:,4]
+    G   = data[:,5]
+    
+    
     mypol = scipy.special.eval_chebyt
-    x     =  (xin-xmin)/(0.5*(xmax-xmin))-1
-    x0s   =  (x0-xmin)/(0.5*(xmax-xmin))-1
+    z     =  (zin-zmin)/(0.5*(zmax-zmin))-1
+    z0s   =  (z0-zmin)/(0.5*(zmax-zmin))-1
     
     X = np.zeros((len(t),len(set(S))+1+order))
     X[:,0]=t-min(t)
     for i in range(1,order+1):
         #X = np.c_[X,v*scipy.special.eval_legendre(i,x)]
-        X[:,i] = v*mypol(i,x)
+        X[:,i] = v*mypol(i,z)
         
     i=i+1
     oss=S[0]
@@ -90,8 +99,6 @@ def FitLikeACanadianOrthoMaster(t,xin,v,V,S,xmin=-5,xmax=5,order=4,x0=0):
         if s!=oss:
             i=i+1
         X[n,i] = v[n]
-        
-            
         oss=s
     X  =np.matrix(X)
     C =((X.T*X).I)
@@ -100,17 +107,31 @@ def FitLikeACanadianOrthoMaster(t,xin,v,V,S,xmin=-5,xmax=5,order=4,x0=0):
     C2 = np.dot(V-fit_vals,V-fit_vals)
     NDF = len(V)
     uncert =np.sqrt( C2/NDF)
-    
     vals = np.array(fit_pars)[order+1:]
     cor=0
     for i in range(1,order+1):
-        cor += fit_pars[i,0]*mypol(i,x0s)
+        cor += fit_pars[i,0]*mypol(i,z0s)
         
     ts =[]
+    grp =[]
     for s in set(S):
         ts.append(np.mean([i for i,j in zip(t,S) if j==s]))
-        
-    return np.array(ts),np.array(vals+cor)[:,0],C2,NDF
+        grp.append(np.mean([i for i,j in zip(G,S) if j==s]))
+
+    ts = np.array(ts)
+    Blz0=np.array(vals+cor)[:,0]
+    grp = np.array(grp)
+    return np.c_[ts,Blz0,grp],C2,NDF,fit_pars
+
+def calcProfile(pars,order,z,zmin=-5,zmax=5):
+    rz = (z-zmin)/(0.5*(zmax-zmin))-1
+    mypol = scipy.special.eval_chebyt
+    ret = np.zeros(len(rz))
+    i=1
+    for p in np.array(pars)[1:order+1,0]:
+        ret += p*mypol(i,rz)
+        i=i+1
+    return ret
 
 
 

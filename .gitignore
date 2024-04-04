@@ -2,8 +2,7 @@
 /dist
 /build
 k2viewer.spec
-/.ipynb_checkpoins
-*.ipynb
+/.ipynb_checkpoints
 k2viewer.dbg
 *.exe
 k2viewer.db
