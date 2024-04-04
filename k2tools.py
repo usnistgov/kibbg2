@@ -123,7 +123,7 @@ def FitLikeACanadianOrthoMaster(data,zmin=-2.5,zmax=2.5,\
     grp = np.array(grp)
     return np.c_[ts,Blz0,grp],C2,NDF,fit_pars
 
-def calcProfile(pars,order,z,zmin=-5,zmax=5):
+def calcProfile(pars,order,z,zmin=-5,zmax=5,withOffset=False):
     rz = (z-zmin)/(0.5*(zmax-zmin))-1
     mypol = scipy.special.eval_chebyt
     ret = np.zeros(len(rz))
@@ -131,6 +131,8 @@ def calcProfile(pars,order,z,zmin=-5,zmax=5):
     for p in np.array(pars)[1:order+1,0]:
         ret += p*mypol(i,rz)
         i=i+1
+    if withOffset:
+        ret = ret + pars[order+1,0]
     return ret
 
 

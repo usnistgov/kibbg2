@@ -43,6 +43,7 @@ import numpy as np
 import time
 import sqlite3
 import k2dataset
+import k2tools
 try:
        import pyi_splash
        pyi_splash.update_text('UI Loaded ...')
@@ -63,6 +64,8 @@ class Worker(QObject):
     def procCounter(self): # A slot takes no params
         self.intReady.emit(0,0,0)
         maxgrp = kda.totGrps
+        kda.readEnv()
+        self.intReady.emit(2,0,0) 
         for k in range(maxgrp+1):
             kda.myVelos.readGrp(k,Vmul=1000)
             kda.myOns.readGrp(k)
@@ -74,8 +77,6 @@ class Worker(QObject):
             if k>=1:
                 kda.calcMass()
             self.intReady.emit(1,k+1,maxgrp+1) 
-        self.intReady.emit(2,0,0) 
-        kda.readEnv()
         self.intReady.emit(99,0,0) 
         
             
@@ -112,30 +113,32 @@ class MainWindow(QMainWindow):
         self.mytable.setHorizontalHeaderItem(0,\
                 QTableWidgetItem("run"))
         self.mytable.setHorizontalHeaderItem(1,\
-                QTableWidgetItem("mass/mg"))
-        self.mytable.setHorizontalHeaderItem(2,\
-                QTableWidgetItem("unc/mg"))
-        self.mytable.setHorizontalHeaderItem(3,\
                 QTableWidgetItem("title"))
+        self.mytable.setHorizontalHeaderItem(2,\
+                QTableWidgetItem("mass/mg"))
+        self.mytable.setHorizontalHeaderItem(3,\
+                QTableWidgetItem("unc/mg"))
 
         self.mytable.setColumnWidth(0, 100)
-        self.mytable.setColumnWidth(1, 120)
-        self.mytable.setColumnWidth(2, 70)
-        self.mytable.setColumnWidth(3, 200)
+        self.mytable.setColumnWidth(1, 200)
+        self.mytable.setColumnWidth(2, 120)
+        self.mytable.setColumnWidth(3, 70)
+        
 
         self.mytable.setFixedWidth(400)
         self.Brefresh = QPushButton("Reload")
         
         ### The plot windows
         
-        self.mplfor  = mplwidget.MplWidget2()
-        self.mplenv  = mplwidget.MplWidget4()
-        self.mplvel  = mplwidget.MplWidget(rightax=True)
-        self.mplmass = mplwidget.MplWidget(rightax=True)
+        self.mplfor      = mplwidget.MplWidget2()
+        self.mplenv      = mplwidget.MplWidget4()
+        self.mplvel      = mplwidget.MplWidget(rightax=True)
+        self.mplmass     = mplwidget.MplWidget(rightax=True)
+        self.mplprofile  = mplwidget.MplWidget(rightax=True)
         
         ### check and spin boxes
         
-        self.cbForMean  = QCheckBox()
+        self.cbShowVolt = QCheckBox()
         self.sbOrder    = QSpinBox()
         self.sbMass     = QDoubleSpinBox()
         self.sbOrder.setValue(4)
@@ -199,7 +202,7 @@ class MainWindow(QMainWindow):
 
         self.mytable.clicked.connect(self.on_table_clicked)
         self.Brefresh.clicked.connect(self.loadTable)
-        self.cbForMean.clicked.connect(self.plotForce)
+        self.cbShowVolt.clicked.connect(self.plotForce)
         self.tabWidget.tabs.currentChanged.connect(self.replot)
         self.sbOrder.valueChanged.connect(self.recalcvelo)
         self.sbMass.valueChanged.connect(self.gotmassval)
@@ -208,6 +211,7 @@ class MainWindow(QMainWindow):
     
 
     def loadTable(self):
+         c = k2dataset.MyConfig()
          self.mytable.clearContents()
          self.mytable.setRowCount(0)
          connection = sqlite3.connect('k2viewer.db')
@@ -224,6 +228,10 @@ class MainWindow(QMainWindow):
                     if len(day)==2:
                         for s3 in sorted([ f.path for f in os.scandir(s2)\
                                           if f.is_dir() ],reverse=True):
+                            if os.path.isfile(os.path.join(s3,'config.ini'))==False:
+                                continue
+                            c.setbd0(s3)
+                            #print(c.title)
                             letter=os.path.split(s3)[-1]
                             if len(letter)==1:
                                 run =yymm+day+letter
@@ -231,6 +239,7 @@ class MainWindow(QMainWindow):
                                 self.mytable.insertRow(row_number)
                                 self.mytable.setItem(row_number,0,\
                                  QTableWidgetItem(str(run)))
+                                self.mytable.setItem(row_number,1,QTableWidgetItem(str(c.title)))
                                 dbentry = cursor.execute("""SELECT run,value,
                                 uncertainty,title FROM k2data 
                                 WHERE run="{0}";""".format(run)).fetchall()
@@ -243,26 +252,30 @@ class MainWindow(QMainWindow):
                                 else:
                                     nitem =QTableWidgetItem('n/a')
                                 nitem.setTextAlignment(int(Qt.AlignRight | Qt.AlignVCenter))
-                                self.mytable.setItem(row_number,1,nitem)
+                                self.mytable.setItem(row_number,2,nitem)
                                 if dbentry[2]>-9e96:
                                     nitem =QTableWidgetItem('{0:6.4f}'.format(dbentry[2]*1e3))
                                 else:
                                     nitem =QTableWidgetItem('n/a')                                
                                 nitem.setTextAlignment(int(Qt.AlignRight | Qt.AlignVCenter))
-                                self.mytable.setItem(row_number,2,nitem)
-                                self.mytable.setItem(row_number,3,QTableWidgetItem(dbentry[3]))
+                                self.mytable.setItem(row_number,3,nitem)
+                                #self.mytable.setItem(row_number,4,QTableWidgetItem(dbentry[3]))
 
          connection.close()
          
     def plotForce(self):
+        if kda.myOffs.maxGrpMem<0:
+            return
         self.mplfor.canvas.ax1.clear()
         self.mplfor.canvas.ax2.clear()
-        if self.cbForMean.isChecked():
-            mof = np.mean(kda.myOffs.data[:,2])
-            mon = np.mean(kda.myOns.data[:,2])
+        if self.cbShowVolt.isChecked():
+            scale = kda.myOffs.c.R/1000
+            yla1='U(on)/mV'
+            yla2='U(off)/mV'          
         else:
-            mof=0
-            mon=0            
+            scale =1
+            yla1='I(on)/uA'
+            yla2='I(off)/uA'
         mutex.lock()
         tmul,tla = kda.tmul()
         # if kda.myOns.maxS>=1:
@@ -276,20 +289,20 @@ class MainWindow(QMainWindow):
         if kda.myOns.adatalen>0:
             _=self.mplfor.canvas.ax1.errorbar(
                 kda.myOns.adata[:,0]*tmul,\
-                kda.myOns.adata[:,2],\
-                kda.myOns.adata[:,7],\
+                kda.myOns.adata[:,2]*scale,\
+                kda.myOns.adata[:,7]*scale,\
                     fmt='ro')           
         if kda.myOffs.adatalen>0:
             _=self.mplfor.canvas.ax2.errorbar(
                 kda.myOffs.adata[:,0]*tmul,\
-                kda.myOffs.adata[:,2],\
-                kda.myOffs.adata[:,7],\
+                kda.myOffs.adata[:,2]*scale,\
+                kda.myOffs.adata[:,7]*scale,\
                     fmt='bs')
             
         self.mplfor.canvas.setsamexscale()
         mutex.unlock()
-        self.mplfor.canvas.ax1.set_ylabel('I(on)/uA')
-        self.mplfor.canvas.ax2.set_ylabel('I(off)/uA')
+        self.mplfor.canvas.ax1.set_ylabel(yla1)
+        self.mplfor.canvas.ax2.set_ylabel(yla2)
         self.mplfor.canvas.ax2.set_xlabel(tla)
         self.mplfor.canvas.draw() 
             
@@ -298,14 +311,18 @@ class MainWindow(QMainWindow):
         self.mplenv.canvas.ax2.clear()
         self.mplenv.canvas.ax3.clear()
         self.mplenv.canvas.ax4.clear()
-        if kda.hasEnv==False:
+        if kda.myEnv.hasEnv==False:
             return
         mutex.lock()
         tmul,tla = kda.tmul()
-        self.mplenv.canvas.ax1.plot(kda.edata [:,0]*tmul,kda.edata[:,1],'r.')
-        self.mplenv.canvas.ax2.plot(kda.edata [:,0]*tmul,kda.edata[:,2],'b.')
-        self.mplenv.canvas.ax3.plot(kda.edata [:,0]*tmul,kda.edata[:,3],'g.')
-        self.mplenv.canvas.ax4.plot(kda.edata [:,0]*tmul,kda.edata[:,4],'m.')
+        self.mplenv.canvas.ax1.plot(kda.myEnv.edata [:,0]*tmul,\
+                                    kda.myEnv.edata[:,1],'r.')
+        self.mplenv.canvas.ax2.plot(kda.myEnv.edata [:,0]*tmul,\
+                                    kda.myEnv.edata[:,2],'b.')
+        self.mplenv.canvas.ax3.plot(kda.myEnv.edata [:,0]*tmul,\
+                                    kda.myEnv.edata[:,3],'g.')
+        self.mplenv.canvas.ax4.plot(kda.myEnv.edata [:,0]*tmul,\
+                                    kda.myEnv.edata[:,4],'m.')
         mutex.unlock()
         self.mplenv.canvas.ax1.ticklabel_format(useOffset=False)
         self.mplenv.canvas.ax2.ticklabel_format(useOffset=False)
@@ -377,27 +394,29 @@ class MainWindow(QMainWindow):
         #maxt=np.max(kda.Fresult[:,0]*tmul)
         mutex.unlock()
         be,en =self.mplmass.canvas.ax1.get_xlim()
-        # self.mplmass.canvas.ax1.plot((be,en),(mean,mean),c='k',linestyle='dashed',lw=2)
-        # self.mplmass.canvas.ax1.plot((be,en),(mean+sig,mean+sig),\
-        #                              c='r',linestyle='dashdot')
-        # self.mplmass.canvas.ax1.plot((be,en),(mean-sig,mean-sig),\
-        #                              c='r',linestyle='dashdot')
-        # self.mplmass.canvas.ax1.fill_between((be,en), (mean-sig,mean-sig),\
-        #                         (mean+sig,mean+sig),color='r', alpha=0.2)
-        # self.mplmass.canvas.ax1.set_xlim(be,en)
-        # if kda.hasRefMass:
-        #     be,en =self.mplmass.canvas.ax1.get_xlim()
-        #     self.mplmass.canvas.ax1.plot((be,en),
-        #                                  (kda.refMass,kda.refMass),c='m',
-        #                                  linestyle='dotted',lw=4)
-        #     self.mplmass.canvas.ax1.set_xlim(be,en)
+        mean = kda.Mass.avemass
+        sig  =  kda.Mass.uncmass
+        self.mplmass.canvas.ax1.plot((be,en),\
+                        (mean,mean),c='k',linestyle='dashed',lw=2)
+        self.mplmass.canvas.ax1.plot((be,en),(mean+sig,mean+sig),\
+                                      c='r',linestyle='dashdot')
+        self.mplmass.canvas.ax1.plot((be,en),(mean-sig,mean-sig),\
+                                      c='r',linestyle='dashdot')
+        self.mplmass.canvas.ax1.fill_between((be,en), (mean-sig,mean-sig),\
+                                 (mean+sig,mean+sig),color='r', alpha=0.2)
+        self.mplmass.canvas.ax1.set_xlim(be,en)
+        if kda.hasRefMass:
+             be,en =self.mplmass.canvas.ax1.get_xlim()
+             self.mplmass.canvas.ax1.plot((be,en),
+                                          (kda.refMass,kda.refMass),c='m',
+                                          linestyle='dotted',lw=4)
+             self.mplmass.canvas.ax1.set_xlim(be,en)
             
         be,en =self.mplmass.canvas.ax1.get_ylim()
             
-        # #self.mplmass.canvas.draw() 
         me =0.5*(be+en)
-        # if kda.hasRefMass:
-        #     me =kda.refMass
+        if kda.hasRefMass:
+            me =kda.refMass
         self.mplmass.canvas.bx1.set_ylim((be/me-1)*1e6,(en/me-1)*1e6)
         self.mplmass.canvas.ax1.set_xlabel(tla)    
         self.mplmass.canvas.ax1.set_ylabel('mass /mg')
@@ -405,6 +424,28 @@ class MainWindow(QMainWindow):
         self.mplmass.canvas.bx1.ticklabel_format(useOffset=False)
         self.mplmass.canvas.ax1.ticklabel_format(useOffset=False)
         self.mplmass.canvas.draw() 
+        
+        
+    def plotProfile(self):
+        if kda.myVelos.maxGrpMem<0:
+            return
+        if len(kda.myVelos.fit_pars)<2:
+            return
+        self.mplprofile.canvas.ax1.clear()
+        z=np.linspace(-1.5,1.5,200)
+        bl=k2tools.calcProfile(kda.myVelos.fit_pars,kda.myVelos.order,\
+            z,kda.myVelos.zmin,kda.myVelos.zmax,withOffset=True)
+        self.mplprofile.canvas.ax1.plot(z,bl,'r-')
+        be,en =self.mplprofile.canvas.ax1.get_ylim()
+        me =0.5*(be+en)
+        self.mplprofile.canvas.bx1.set_ylim((be/me-1)*1e6,(en/me-1)*1e6)
+        self.mplprofile.canvas.ax1.set_ylabel('Bl (Tm)')
+        self.mplprofile.canvas.bx1.set_ylabel('rel. change /ppm')
+        self.mplprofile.canvas.ax1.set_xlabel('z (mm)')
+        self.mplprofile.canvas.draw() 
+        
+        
+        
         
         
     def plotUnc(self):
@@ -427,11 +468,10 @@ class MainWindow(QMainWindow):
 
     def recalcvelo(self):
         order = int(self.sbOrder.value() )
-        #kda.fitVelo(order,supports)
-        #self.plotVelocity()
-        #kda.calcforce()
-        self.updateTable()
-        self.replot()
+        if kda.myVelos.maxGrpMem>0:
+            kda.myVelos.fitMe(order)
+            kda.calcMass()
+            self.replot()
 
 
 
@@ -447,7 +487,10 @@ class MainWindow(QMainWindow):
             self.plotVelocity()
         elif tat=='Mass':
             self.plotMass()
-  #      elif tat=='Uncertainty':
+        elif tat=='Profile':
+            self.plotProfile()
+
+    #      elif tat=='Uncertainty':
    #         self.plotUnc()
     
    
@@ -538,6 +581,7 @@ class MyTabWidget(QWidget):
         self.tab3 = QWidget() 
         self.tab4 = QWidget() 
         self.tab5 = QWidget() 
+        self.tab6 = QWidget() 
         self.tabs.resize(300, 200) 
   
         # Add tabs 
@@ -549,9 +593,9 @@ class MyTabWidget(QWidget):
         l1.setText("Forcemode") 
         h1 = QHBoxLayout()
         l2 = QLabel() 
-        l2.setText("subtract mean")
+        l2.setText("show voltage")
         h1.addWidget(l2)
-        h1.addWidget(parent.cbForMean)
+        h1.addWidget(parent.cbShowVolt)
         
         verticalSpacer = QSpacerItem(20, 40, 
                                      QSizePolicy.Minimum, 
@@ -581,10 +625,6 @@ class MyTabWidget(QWidget):
         l2.setText("order")
         h1.addWidget(l2)
         h1.addWidget(parent.sbOrder)
-        
-        h2 = QHBoxLayout()
-        l3 = QLabel() 
-    
         
         verticalSpacer = QSpacerItem(20, 40, 
                                      QSizePolicy.Minimum, 
@@ -651,6 +691,17 @@ class MyTabWidget(QWidget):
         self.tab5.layout.addWidget(QLabel('statistical'),6,0)
         self.tab5.layout.addWidget(parent.laUncA,6,1)
 
+
+        # Create sceond tab 
+        self.tab6.layout = QHBoxLayout()
+        self.tab6.layout.addWidget(parent.mplprofile)
+        self.tab6.setLayout(self.tab6.layout) 
+
+
+        
+        
+        
+        
         ltot = QLabel('total')
         self.tab5.layout.addWidget(ltot,7,0)
         self.tab5.layout.addWidget(parent.laUncTot,7,1)
@@ -668,10 +719,11 @@ class MyTabWidget(QWidget):
         # Add tabs to widget 
         self.layout.addWidget(self.tabs) 
         self.setLayout(self.layout) 
+        self.tabs.addTab(self.tab4, "Mass") 
         self.tabs.addTab(self.tab1, "Force") 
         self.tabs.addTab(self.tab2, "Environmentals") 
         self.tabs.addTab(self.tab3, "Velocity") 
-        self.tabs.addTab(self.tab4, "Mass") 
+        self.tabs.addTab(self.tab6, "Profile")
         self.tabs.addTab(self.tab5, "Uncertainty") 
 
 

@@ -44,7 +44,8 @@ class MyVelos(MyFiles):
         self.sco=0
         self.adata=[]
         self.blfit=[]
-        self.maxgrp=0
+        self.maxgrp=-1
+        self.fit_pars=[]
         
     def readFn(self,grp,fi,Vmul=1000):
         data = np.loadtxt(fi)
@@ -66,6 +67,8 @@ class MyVelos(MyFiles):
             self.adata=np.r_[self.adata,dset]
             
     def fitMe(self,order=4):
+        if self.maxGrpMem<0:
+            return
         self.z0=0
         self.order=order
         self.zmin = np.min(self.adata[:,1])
@@ -139,7 +142,7 @@ class MyForces(MyFiles):
         super(MyForces, self).__init__(c)
         self.sco=0
         self.data=[]
-        self.maxgrp=0
+        self.maxgrp=-1
         self.maxS=int(0)
         self.adatalen =0
 
@@ -162,9 +165,7 @@ class MyForces(MyFiles):
     def aveForce(self):
         self.adata =[]
         for s in range(int(self.maxS)+1):
-            print(s)
             ix = np.where(self.data[:,3]==s)[0]
-            print(ix)
             means = np.mean( self.data[ix,:],axis=0)        #order 0-time, 1-z, 2-Current, 3-S, 4-Grp
             stds  = np.std( self.data[ix,:],axis=0,ddof =1) #order 5-time, 6-z, 7-Current, 8-S, 9-Grp
             N = len(self.data[ix,:])
@@ -184,7 +185,8 @@ class MyForces(MyFiles):
         self.adatalen =len(self.adata)
         
 class Mass:
-    def __init__(self,Velos,myOns,myOffs):
+    def __init__(self,Velos,myOns,myOffs,Env):
+        self.myEnv = Env
         self.myVelos = Velos
         self.myOns = myOns
         self.myOffs =myOffs
@@ -257,13 +259,19 @@ class Mass:
 
             for a,b in zip(of_d,on_d):
                 t = 0.5*(b[0]+a[0])
-                di= b[2]-a[2]
+                airdens = np.interp(t,self.myEnv.edata[:,0],\
+                                    self.myEnv.edata[:,4])
+                denscorr=1+airdens/(self.c.dens)
+                di= (b[2]-a[2])*denscorr
                 su =b[2]+a[2]
                 z = 0.5*(a[1]+b[1])
                 unc =np.sqrt(a[3]**2+b[3]**2)
                 grp =b[4]
                 diffs.append(np.r_[t,z,di,unc,grp])
-        self.dif_d= np.array(diffs)        
+        self.dif_d= np.array(diffs)      
+        self.avemass = sum(self.dif_d[:,2]/self.dif_d[:,3]**2)/sum(1/self.dif_d[:,3]**2)
+        self.uncmass = 1/np.sqrt(sum(1/self.dif_d[:,3]**2))
+        
         
 
         
@@ -302,12 +310,14 @@ class MyConfig:
         self.mydict['Dens']       = self.parse(self.config['Calibration']['MassDensity'],'float')        
         self.mydict['VerticalityDate'] = self.parsedate(self.config['VelocityMode']['VerticalityDate'])
 
-        self.R = self.mydict['R'] 
-        self.Runc = self.mydict['Runc'] 
-        self.g = self.mydict['g'] 
-        self.gunc = self.mydict['gunc'] 
-        self.Vcal = self.mydict['ZENER']/self.mydict['DVMREAD']     #multiply all V readings with that
-        self.hacconfig=True
+        self.title     = self.mydict['Title']       
+        self.R         = self.mydict['R'] 
+        self.dens      = self.mydict['Dens']
+        self.Runc      = self.mydict['Runc'] 
+        self.g         = self.mydict['g'] 
+        self.gunc      = self.mydict['gunc'] 
+        self.Vcal      = self.mydict['ZENER']/self.mydict['DVMREAD']     #multiply all V readings with that
+        self.hacconfig = True
     
     def trim(self,inp):
         if self.ver==1:
@@ -341,7 +351,36 @@ class MyConfig:
             return self.parsedate(inp)
         if ty.upper()=='FLOAT':
             return float(inp)
-            
+      
+        
+class MyEnv():
+    def __init_(self):
+        self.clear()
+    
+    def clear(self):
+        self.hasEnv=False
+        self.mutex.lock()
+        self.edata = []
+        self.mutex.unlock()
+
+    
+    def setbd0(self,bd0):
+        self.bd0=bd0
+        if self.bd0=='':          
+            return            
+        if 'PRTData.dat' not in os.listdir(self.bd0):
+            return
+        fn =os.path.join(self.bd0,'PRTData.dat')
+        da = np.loadtxt(fn,skiprows=1,usecols=[1,2,3])
+        da =np.vstack((np.arange(len(da[:,0])).T*10,da.T)).T
+        dens = k2tools.airDensity(da[:,3],da[:,2],da[:,1])
+        self.edata = np.vstack((da.T,dens)).T
+        if np.shape(self.edata)[0]>0:
+            self.hasEnv=True
+        
+        
+    
+        
 class k2Set():
     def __init__(self,mutex):
         """
@@ -354,33 +393,30 @@ class k2Set():
         self.myVelos=MyVelos(self.c)
         self.myOns=MyForces(self.c)
         self.myOffs=MyForces(self.c)
-        self.clearEnv()
+        self.myEnv=MyEnv()
         self.Mass=0
+        self.clearRefMass()
         
-    def calcMass(self):
-        self.Mass= Mass(self.myVelos,self.myOns,self.myOffs)
-    
-    def clearEnv(self):
-        self.hasEnv=False
+        
+    def clearRefMass(self):
         self.mutex.lock()
-        self.edata = []
+        self.refMass=0
+        self.hasRefMass = False
         self.mutex.unlock()
+        
+    def setRefMass(self,refmass):
+        self.mutex.lock()
+        self.refMass=refmass
+        self.hasRefMass = True
+        self.mutex.unlock()
+
+
+    def calcMass(self):
+        self.Mass= Mass(self.myVelos,self.myOns,self.myOffs,self.myEnv)
+    
         
     def readEnv(self):
-        self.clearEnv()
-        if self.bd0=='':          
-            return            
-        if 'PRTData.dat' not in os.listdir(self.bd0):
-            return
-        fn =os.path.join(self.bd0,'PRTData.dat')
-        da = np.loadtxt(fn,skiprows=1,usecols=[1,2,3])
-        da =np.vstack((np.arange(len(da[:,0])).T*10,da.T)).T
-        dens = k2tools.airDensity(da[:,3],da[:,2],da[:,1])
-        self.mutex.lock()
-        self.edata = np.vstack((da.T,dens)).T
-        if np.shape(self.edata)[0]>0:
-            self.hasEnv=True
-        self.mutex.unlock()
+        self.myEnv.setbd0(self.bd0)
         
 
     def setbd0(self,bd0):
