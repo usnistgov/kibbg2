@@ -53,12 +53,16 @@ except:
 
 mutex = QMutex()
 kda =   k2dataset.k2Set(mutex)     
-
+kda.clear()
 
 class Worker(QObject):
     finished = pyqtSignal()
     intReady = pyqtSignal(int,int,int)
 
+    def __init__(self,order,usesinc):
+        self.order =order
+        self.usesinc = usesinc
+        super(QObject, self).__init__()
 
     @pyqtSlot()
     def procCounter(self): # A slot takes no params
@@ -71,9 +75,9 @@ class Worker(QObject):
             kda.myOns.readGrp(k)
             kda.myOffs.readGrp(k)
             if k>=1:
-                kda.myVelos.fitMe()
-            kda.myOns.aveForce()
-            kda.myOffs.aveForce()
+                kda.myVelos.fitMe(order=self.order,usesinc=self.usesinc)
+                kda.myOns.aveForce()
+                kda.myOffs.aveForce()
             if k>=1:
                 kda.calcMass()
             self.intReady.emit(1,k+1,maxgrp+1) 
@@ -139,12 +143,14 @@ class MainWindow(QMainWindow):
         ### check and spin boxes
         
         self.cbShowVolt = QCheckBox()
+        self.cbUseSync  = QCheckBox()
+        self.cbMvsZ     = QCheckBox()
         self.sbOrder    = QSpinBox()
         self.sbMass     = QDoubleSpinBox()
-        self.sbOrder.setValue(4)
+        self.sbOrder.setValue(6)
         self.sbOrder.setMinimum(1)
         self.sbOrder.setMaximum(10)
-        
+        self.cbUseSync.setChecked(True)
       
         self.sbMass.setMinimumWidth(100)
         self.sbMass.setMinimum(0)
@@ -159,7 +165,12 @@ class MainWindow(QMainWindow):
         self.lares    = QLabel("") 
         self.laUncA   = QLabel("n/a")
         self.laUncTot = QLabel("n/a")
-        
+        self.laMass   = QLabel("")
+        self.laUnc    = QLabel("")
+        myFont=QFont('Arial',18)
+        myFont.setBold(True)
+        self.laMass.setFont(myFont)
+        self.laUnc.setFont(myFont)
         
         ### Status bar
 
@@ -183,6 +194,7 @@ class MainWindow(QMainWindow):
 
         layout   = QVBoxLayout()
         hlayout  = QHBoxLayout()
+        hlayout2  = QHBoxLayout()
         vlayout1 = QVBoxLayout()
         vlayout2 = QVBoxLayout()
         
@@ -193,9 +205,24 @@ class MainWindow(QMainWindow):
         layout.addLayout(hlayout)
         hlayout.addLayout(vlayout1)
         hlayout.addLayout(vlayout2)
+        
+        vlayout2.addLayout(hlayout2)
         vlayout2.addWidget(self.tabWidget)
+
         vlayout1.addWidget(self.mytable)
         vlayout1.addWidget(self.Brefresh)
+        
+        l2 = QLabel() 
+        l2.setText("order")
+        hlayout2.addWidget(l2)
+        hlayout2.addWidget(self.sbOrder)
+        hlayout2.addWidget(self.cbUseSync)
+        hlayout2.addWidget(QLabel('use sinc'))
+        
+        hSpacer = QSpacerItem(20, 2,QSizePolicy.Expanding,
+                                     QSizePolicy.Minimum)
+        
+        hlayout2.addItem(hSpacer)
      
         self.setCentralWidget(widget)
         self.loadTable()
@@ -203,6 +230,8 @@ class MainWindow(QMainWindow):
         self.mytable.clicked.connect(self.on_table_clicked)
         self.Brefresh.clicked.connect(self.loadTable)
         self.cbShowVolt.clicked.connect(self.plotForce)
+        self.cbUseSync.clicked.connect(self.recalcvelo)
+        self.cbMvsZ.clicked.connect(self.plotMass)
         self.tabWidget.tabs.currentChanged.connect(self.replot)
         self.sbOrder.valueChanged.connect(self.recalcvelo)
         self.sbMass.valueChanged.connect(self.gotmassval)
@@ -329,15 +358,16 @@ class MainWindow(QMainWindow):
         self.mplenv.canvas.ax3.ticklabel_format(useOffset=False)
         self.mplenv.canvas.ax4.ticklabel_format(useOffset=False)
         self.mplenv.canvas.ax1.xaxis.set_ticklabels([])
-        self.mplenv.canvas.ax2.xaxis.set_ticklabels([])
         self.mplenv.canvas.ax3.xaxis.set_ticklabels([])
         self.mplenv.canvas.ax1.tick_params(axis='x',direction='inout')
         self.mplenv.canvas.ax2.tick_params(axis='x',direction='inout')
         self.mplenv.canvas.ax3.tick_params(axis='x',direction='inout')
+        self.mplenv.canvas.ax4.tick_params(axis='x',direction='inout')
         self.mplenv.canvas.ax1.set_ylabel('rel. humid (%)')
         self.mplenv.canvas.ax2.set_ylabel('press. (hPa)')
         self.mplenv.canvas.ax3.set_ylabel('temp (degC)')
         self.mplenv.canvas.ax4.set_ylabel('air dens. (kg/m^3)')
+        self.mplenv.canvas.ax2.set_xlabel(tla)  
         self.mplenv.canvas.ax4.set_xlabel(tla)  
         self.mplenv.canvas.draw() 
 
@@ -387,15 +417,24 @@ class MainWindow(QMainWindow):
         self.mplmass.canvas.ax1.clear()
         mutex.lock()
         tmul,tla = kda.tmul()
-        self.mplmass.canvas.ax1.errorbar(
-            kda.Mass.dif_d[:,0]*tmul,kda.Mass.dif_d[:,2],\
-                kda.Mass.dif_d[:,3],fmt='bo')
+        if self.cbMvsZ.isChecked()==False:
+            self.mplmass.canvas.ax1.errorbar(
+                kda.Mass.dif_d[:,0]*tmul,kda.Mass.dif_d[:,2],\
+                    kda.Mass.dif_d[:,3],fmt='bo')
+        else:
+            self.mplmass.canvas.ax1.errorbar(
+                kda.Mass.dif_d[:,1],kda.Mass.dif_d[:,2],\
+                    kda.Mass.dif_d[:,3],fmt='bo')
+            tla='z/mm'
+            
         #mint=np.min(kda.Fresult[:,0]*tmul)
         #maxt=np.max(kda.Fresult[:,0]*tmul)
         mutex.unlock()
         be,en =self.mplmass.canvas.ax1.get_xlim()
         mean = kda.Mass.avemass
         sig  =  kda.Mass.uncmass
+        self.laMass.setText('{0:8.4f} mg'.format(mean))
+        self.laUnc.setText('{0:4.1f} ug'.format(sig*1000))
         self.mplmass.canvas.ax1.plot((be,en),\
                         (mean,mean),c='k',linestyle='dashed',lw=2)
         self.mplmass.canvas.ax1.plot((be,en),(mean+sig,mean+sig),\
@@ -414,13 +453,14 @@ class MainWindow(QMainWindow):
             
         be,en =self.mplmass.canvas.ax1.get_ylim()
             
-        me =0.5*(be+en)
+        #me =0.5*(be+en)
+        me = mean
         if kda.hasRefMass:
             me =kda.refMass
-        self.mplmass.canvas.bx1.set_ylim((be/me-1)*1e6,(en/me-1)*1e6)
+        self.mplmass.canvas.bx1.set_ylim((be-me)*1e3,(en-me)*1e3)
         self.mplmass.canvas.ax1.set_xlabel(tla)    
         self.mplmass.canvas.ax1.set_ylabel('mass /mg')
-        self.mplmass.canvas.bx1.set_ylabel('rel. change /ppm')
+        self.mplmass.canvas.bx1.set_ylabel('deviaton  /ug')
         self.mplmass.canvas.bx1.ticklabel_format(useOffset=False)
         self.mplmass.canvas.ax1.ticklabel_format(useOffset=False)
         self.mplmass.canvas.draw() 
@@ -469,7 +509,7 @@ class MainWindow(QMainWindow):
     def recalcvelo(self):
         order = int(self.sbOrder.value() )
         if kda.myVelos.maxGrpMem>0:
-            kda.myVelos.fitMe(order)
+            kda.myVelos.fitMe(order,usesinc=self.cbUseSync.isChecked())
             kda.calcMass()
             self.replot()
 
@@ -557,8 +597,12 @@ class MainWindow(QMainWindow):
             self.runid =self.mytable.item(item.row(), 0).text()
             filePath = os.path.join(self.bd,self.runid[0:4],self.runid[4:6],self.runid[6])
             
+            kda.clear()
             kda.setbd0(filePath)
-            self.obj = Worker()  # no parent!
+            order = int(self.sbOrder.value() )
+            usesinc=self.cbUseSync.isChecked()
+    
+            self.obj = Worker(order,usesinc)  # no parent!
             self.thread = QThread()  # no parent!
             self.obj.intReady.connect(self.readStatus)
             self.obj.moveToThread(self.thread)
@@ -621,10 +665,6 @@ class MyTabWidget(QWidget):
         l1 = QLabel() 
         l1.setText("Velocitymode") 
         h1 = QHBoxLayout()
-        l2 = QLabel() 
-        l2.setText("order")
-        h1.addWidget(l2)
-        h1.addWidget(parent.sbOrder)
         
         verticalSpacer = QSpacerItem(20, 40, 
                                      QSizePolicy.Minimum, 
@@ -660,6 +700,15 @@ class MyTabWidget(QWidget):
         tab4ctrl.addWidget(l4a)
         tab4ctrl.addWidget(l4b)
         tab4ctrl.addWidget(parent.sbMass)
+        tab4ctrl.addWidget(QLabel("Measured Mass:")) 
+        tab4ctrl.addWidget(parent.laMass)
+        tab4ctrl.addWidget(QLabel("+/-")) 
+        tab4ctrl.addWidget(parent.laUnc)
+        h1 = QHBoxLayout()
+        h1.addWidget(parent.cbMvsZ)
+        h1.addWidget(QLabel('plot vs z'))
+        tab4ctrl.addLayout(h1) 
+        
         tab4ctrl.addItem(verticalSpacer)
         
         self.tab4.layout.addLayout(tab4ctrl)

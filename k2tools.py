@@ -137,4 +137,77 @@ def calcProfile(pars,order,z,zmin=-5,zmax=5,withOffset=False):
 
 
 
+def fit_sine(t,y,T,hars=[1,2,3,4]):
+    """
+    Assume the base function is A*sin(wt+phi) = Acos(phi)sin(wt)+ Asin(phi)cos(wt)
+    Hence C = Asin(phi) and S =A cos(phi)  C/S = tan(phi)
+    """
+    w= 2*np.pi/T
+    wt = t*w
+    O = np.ones(len(y))
+    X = np.array(O)
+    for i in  hars:
+        C = np.cos(wt*i)
+        S = np.sin(wt*i)
+        X = np.vstack((X,C,S))
+    X = np.matrix(X.T)
+    C = (X.T*X).I    # covariance matrix
+    fit_pars=C*X.T*np.matrix(y).T
+    fit_vals =np.array( X*fit_pars)[:,0]  
+    C2 = np.dot(y-fit_vals,y-fit_vals)
+    Ndf = len(t)-1-2*len(hars)
+    sigma2 = C2/Ndf
+    CS = C*sigma2   # scaled covariance matrix
+    off = fit_pars[0,0]
+    amp=[]
+    phase=[]
+    for i in range(1,1+len(hars)):
+        amp.append(np.sqrt(fit_pars[i*2-1,0]**2+fit_pars[i*2,0]**2))
+        phase.append(np.arctan2(fit_pars[i*2-1,0],fit_pars[i*2,0]))
+    return off,amp,phase,C2,fit_vals
+#    return np.array(fit_pars)[:,0],fit_vals,C2
+
+def findmin2(t,y,tmin,tmax,hars=[1,2,3,4]):
+    C2=[]
+    TT = np.linspace(0,tmax-tmin,5)
+    for tt in TT:
+        o,a,p,c2,_=fit_sine(t,y,tmin+tt,hars)
+        C2.append(c2)
+    pf=np.polyfit(TT,C2,2)
+    #print(pf)
+    # y = ax^2+bx+c -> 2*ax+b=0 x= -b/(2a)
+    return tmin-pf[1]/2/pf[0]
+
+def myatten(T,tau,hars,amps,phase):
+    f0= 1./T
+    nea=[]
+    nep=[]
+    for h,a,p in zip(hars,amps,phase):
+        f =h*f0
+        nea.append(a/np.sinc(f*tau))
+        nep.append(p+np.pi*f*tau)
+    return nea,nep
+
+
+def calcAP(t,T,hars,O,amps,phase):
+    y = np.ones(len(t))*O
+    w= 2*np.pi/T
+    wt =w*t
+    for h,a,p in zip(hars,amps,phase):
+        y += a*np.sin(wt*h+p)
+    return y
+                
+    
+
+def findmin2(t,y,tmin,tmax,hars=[1,2,3,4]):
+    C2=[]
+    TT = np.linspace(0,tmax-tmin,5)
+    for tt in TT:
+        o,a,p,c2,_=fit_sine(t,y,tmin+tt,hars)
+        C2.append(c2)
+    pf=np.polyfit(TT,C2,2)
+    #print(pf)
+    # y = ax^2+bx+c -> 2*ax+b=0 x= -b/(2a)
+    return tmin-pf[1]/2/pf[0]
+
 

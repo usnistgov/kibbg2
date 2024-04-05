@@ -51,8 +51,8 @@ class MplCanvas2(FigureCanvasQTAgg):
         bb=0.15
         h=0.35
         w=0.8
-        dx=0.1
-        self.ax1 = self.fig.add_axes((ll,bb+1*h+dx,w,h))
+        dy=0.1
+        self.ax1 = self.fig.add_axes((ll,bb+1*h+dy,w,h))
         self.ax2 = self.fig.add_axes((ll,bb+0*h,w,h))
         self.ax1.yaxis.set_major_formatter(ticker.FormatStrFormatter("%.5e"))
         self.ax2.yaxis.set_major_formatter(ticker.FormatStrFormatter("%.5e"))
@@ -106,10 +106,19 @@ class MplCanvas4(FigureCanvasQTAgg):
         bb=0.15
         h=0.2
         w=0.8
-        self.ax1 = self.fig.add_axes((ll,bb+3*h,w,h))
-        self.ax2 = self.fig.add_axes((ll,bb+2*h,w,h))
-        self.ax3 = self.fig.add_axes((ll,bb+1*h,w,h))
-        self.ax4 = self.fig.add_axes((ll,bb+0*h,w,h))
+        ll=0.15
+        bb=0.15
+        h=0.35
+        w=0.35
+        dy=0.1
+        dx=0.1
+        self.ax1 = self.fig.add_axes((ll,bb+1*h+dx,w,h))
+        self.ax2 = self.fig.add_axes((ll,bb+0*h,w,h))
+        
+        self.ax3 = self.fig.add_axes((ll+w+dy,bb+1*h+dx,w,h))
+        self.ax4 = self.fig.add_axes((ll+w+dy,bb+0*h,w,h))
+        
+        
         FigureCanvasQTAgg.__init__(self, self.fig)
         FigureCanvasQTAgg.setSizePolicy(self,
                                     QSizePolicy.Expanding,

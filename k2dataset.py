@@ -37,18 +37,28 @@ class MyFiles():
             return 0
         return max(list(self.myfn))
     
+    def clear(self):
+        self.myfn={}
+        self.maxGrpMem=-1
+        
+    
     
 class MyVelos(MyFiles):
     def __init__(self,c):
         super(MyVelos, self).__init__(c)
         self.sco=0
         self.adata=[]
+        self.sincdata=[]
         self.blfit=[]
         self.maxgrp=-1
         self.fit_pars=[]
+        self.T0=4.34
+        
+    
         
     def readFn(self,grp,fi,Vmul=1000):
         data = np.loadtxt(fi)
+        self.sincdata=[]
         t1 = data[:,0]
         t2 = data[:,1]
         z1 = data[:,2]
@@ -60,13 +70,35 @@ class MyVelos(MyFiles):
         self.sco+=1
         t =0.5*(t1+t2)
         z =0.5*(z1+z2)
-        dset = np.c_[t,z,v,V,S,G]
+        dset = np.c_[t,z,v,V,S,G] # 0-t, 1-z,2-v,3-V 4-S
         if len(self.adata)==0:
             self.adata  =np.array(dset)
         else:
             self.adata=np.r_[self.adata,dset]
+    
+    def  makesinc(self):
+        hars=[1,2,3,4,5,6]
+        T0= 4.240118026626671
+        tau =0.1
+        self.sincdata = np.array(self.adata)
+        smax = int(np.max(self.adata[:,4]))
+        for s in range(smax+1):
+            ix = np.where(self.adata[:,4]==s)[0]
+            ov,av,pv,c2v,fv=k2tools.fit_sine(self.adata[ix,0],self.adata[ix,2],T0,hars)
+            oV,aV,pV,c2V,fV=k2tools.fit_sine(self.adata[ix,0],self.adata[ix,3],T0,hars)
+            resv=self.adata[ix,2]-fv
+            resV=self.adata[ix,3]-fV
             
-    def fitMe(self,order=4):
+            ava,pva = k2tools.myatten(T0,tau,hars,av,pv)
+            aVa,pVa = k2tools.myatten(T0,tau,hars,aV,pV)
+            
+            self.sincdata[ix,2] =k2tools.calcAP(self.adata[ix,0],T0,hars,ov,ava,pva)+resv
+            self.sincdata[ix,3] =k2tools.calcAP(self.adata[ix,0],T0,hars,oV,aVa,pVa)+resV
+            
+            
+        
+    
+    def fitMe(self,order=4,usesinc=False):
         if self.maxGrpMem<0:
             return
         self.z0=0
@@ -74,12 +106,22 @@ class MyVelos(MyFiles):
         self.zmin = np.min(self.adata[:,1])
         self.zmax = np.max(self.adata[:,1])        
         self.tmin = np.min(self.adata[:,0])
-        self.tmax = np.max(self.adata[:,0])        
+        self.tmax = np.max(self.adata[:,0])    
         
-        self.blfit,self.C2,self.NDF,self.fit_pars = \
-            k2tools.FitLikeACanadianOrthoMaster(self.adata,\
-                        zmin=self.zmin,zmax=self.zmax,\
-                            order=self.order,z0=self.z0)
+        if usesinc == False:
+        
+            self.blfit,self.C2,self.NDF,self.fit_pars = \
+                k2tools.FitLikeACanadianOrthoMaster(self.adata,\
+                            zmin=self.zmin,zmax=self.zmax,\
+                                order=self.order,z0=self.z0)
+        else:
+            if np.shape(self.sincdata)!=np.shape(self.adata):
+                self.makesinc()
+            self.blfit,self.C2,self.NDF,self.fit_pars = \
+                k2tools.FitLikeACanadianOrthoMaster(self.sincdata,\
+                            zmin=self.zmin,zmax=self.zmax,\
+                                order=self.order,z0=self.z0)
+                
         self.maxgrp =int(max(self.blfit[:,2]))
         self.cov=[]
         self.piecewise=[]
@@ -175,7 +217,7 @@ class MyForces(MyFiles):
                 rtN=1
             stds=stds/rtN
             if len(self.adata)==0:
-                self.adata  =np.array(np.r_[means,stds])
+                self.adata =np.array(np.r_[means,stds])
             else:
                 self.adata=np.c_[self.adata,np.r_[means,stds]]
         if len(np.shape(self.adata))==2:
@@ -185,7 +227,7 @@ class MyForces(MyFiles):
         self.adatalen =len(self.adata)
         
 class Mass:
-    def __init__(self,Velos,myOns,myOffs,Env):
+    def __init__(self,Velos,myOns,myOffs,Env,usebl=True,useg=True,usedens=True):
         self.myEnv = Env
         self.myVelos = Velos
         self.myOns = myOns
@@ -204,9 +246,16 @@ class Mass:
         bl_cor2 = k2tools.calcProfile(
             self.myVelos.fit_pars,self.myVelos.order,\
             self.myVelos.z0*np.ones(len(on_z)),self.myVelos.zmin,self.myVelos.zmax)
-        bl = bl+bl_cor1-bl_cor2
-        on_F = self.myOns.adata[ix_on,2]*bl/self.c.g
-        on_Func = self.myOns.adata[ix_on,7]*bl/self.c.g
+        if usebl:
+            bl = bl+bl_cor1-bl_cor2
+        else:
+            bl=1
+        if useg:
+            g=self.c.g
+        else:
+            g=1
+        on_F = self.myOns.adata[ix_on,2]*bl/g
+        on_Func = self.myOns.adata[ix_on,7]*bl/g
         on_grp = self.myOns.adata[ix_on,4]
 
         self.on_d = np.c_[on_t,on_z,on_F,on_Func,on_grp]
@@ -223,9 +272,17 @@ class Mass:
         bl_cor2 = k2tools.calcProfile(
             self.myVelos.fit_pars,self.myVelos.order,\
             self.myVelos.z0*np.ones(len(of_z)),self.myVelos.zmin,self.myVelos.zmax)
-        bl = bl+bl_cor1-bl_cor2
-        of_F = self.myOffs.adata[ix_of,2]*bl/self.c.g
-        of_Func = self.myOffs.adata[ix_of,7]*bl/self.c.g
+        if usebl:
+            bl = bl+bl_cor1-bl_cor2
+        else:
+            bl=1
+        if useg:
+            g=self.c.g
+        else:
+            g=1
+        
+        of_F = self.myOffs.adata[ix_of,2]*bl/g
+        of_Func = self.myOffs.adata[ix_of,7]*bl/g
         of_grp = self.myOffs.adata[ix_of,4]
         self.of_d = np.c_[of_t,of_z,of_F,of_Func,of_grp]
 
@@ -261,7 +318,10 @@ class Mass:
                 t = 0.5*(b[0]+a[0])
                 airdens = np.interp(t,self.myEnv.edata[:,0],\
                                     self.myEnv.edata[:,4])
-                denscorr=1+airdens/(self.c.dens)
+                if usedens:
+                    denscorr=1+airdens/(self.c.dens)
+                else:
+                    denscorr=False
                 di= (b[2]-a[2])*denscorr
                 su =b[2]+a[2]
                 z = 0.5*(a[1]+b[1])
@@ -271,6 +331,15 @@ class Mass:
         self.dif_d= np.array(diffs)      
         self.avemass = sum(self.dif_d[:,2]/self.dif_d[:,3]**2)/sum(1/self.dif_d[:,3]**2)
         self.uncmass = 1/np.sqrt(sum(1/self.dif_d[:,3]**2))
+        self.c2=sum((self.dif_d[:,2]-self.avemass)**2/self.dif_d[:,3]**2)
+        self.ndf =  len(self.dif_d[:,2])-1
+        if self.ndf>1:
+            self.br = np.sqrt(self.c2/self.ndf)
+            if self.br>2:
+                self.uncmass=self.uncmass*self.br
+                self.dif_d[:,3] =self.dif_d[:,3] *self.br
+            
+
         
         
 
@@ -359,10 +428,8 @@ class MyEnv():
     
     def clear(self):
         self.hasEnv=False
-        self.mutex.lock()
         self.edata = []
-        self.mutex.unlock()
-
+        
     
     def setbd0(self,bd0):
         self.bd0=bd0
@@ -395,8 +462,16 @@ class k2Set():
         self.myOffs=MyForces(self.c)
         self.myEnv=MyEnv()
         self.Mass=0
-        self.clearRefMass()
+        self.clear()
         
+        
+    def clear(self):
+        self.clearRefMass()
+        self.myEnv.clear()
+        self.myVelos.clear()
+        self.myOns.clear()
+        self.myOffs.clear()
+        self.Mass=0
         
     def clearRefMass(self):
         self.mutex.lock()
@@ -411,8 +486,9 @@ class k2Set():
         self.mutex.unlock()
 
 
-    def calcMass(self):
-        self.Mass= Mass(self.myVelos,self.myOns,self.myOffs,self.myEnv)
+    def calcMass(self,usebl=True,useg=True,usedens=True):
+        self.Mass= Mass(self.myVelos,self.myOns,self.myOffs,self.myEnv,\
+                        usebl,useg,usedens)
     
         
     def readEnv(self):
