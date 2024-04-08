@@ -167,6 +167,26 @@ def fit_sine(t,y,T,hars=[1,2,3,4]):
     return off,amp,phase,C2,fit_vals
 #    return np.array(fit_pars)[:,0],fit_vals,C2
 
+def findT0(t,data,hars,T0guess,dT=1):
+    T0mi = T0guess-dT
+    T0ma = T0guess+dT
+    c2a=[]
+    TT =np.linspace(T0mi,T0ma,10)
+    for tt in TT:
+        _,_,_,C2,_=fit_sine(t,data,tt,hars=hars)
+        c2a.append(C2)
+    ix =np.argmin(c2a)
+    T0 = TT[ix]
+    if ix>=8:
+        return findT0(t,data,hars,T0guess+dT/2,dT)
+    if ix<=1:
+        return findT0(t,data,hars,T0guess-dT/2,dT)
+    if dT>0.002:
+        return findT0(t,data,hars,T0guess,dT=dT/5)
+    else:
+        return T0
+
+
 def findmin2(t,y,tmin,tmax,hars=[1,2,3,4]):
     C2=[]
     TT = np.linspace(0,tmax-tmin,5)

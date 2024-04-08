@@ -1,5 +1,6 @@
 import os,sys
 import traceback
+import ctypes
 
 ##https://www.pythonguis.com/tutorials/pyqt-basic-widgets/
 ##
@@ -16,7 +17,7 @@ from PyQt5.QtCore import (
     pyqtSignal, 
     pyqtSlot )
 
-from PyQt5.QtGui import QFont
+from PyQt5.QtGui import QFont,QIcon
 from PyQt5.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -52,7 +53,8 @@ except:
     pass
 
 mutex = QMutex()
-kda =   k2dataset.k2Set(mutex)     
+kda =   k2dataset.k2Set(mutex)    
+kda.setcoverage(2) 
 kda.clear()
 
 class Worker(QObject):
@@ -83,18 +85,6 @@ class Worker(QObject):
             self.intReady.emit(1,k+1,maxgrp+1) 
         self.intReady.emit(99,0,0) 
         
-            
-            
-        
-        #tot = kda.countForceFiles()
-        #for k in kda.readForce():
-            #self.intReady.emit(1,k,tot)
-        #kda.readEnv()
-        #self.intReady.emit(2,0,0)
-        #tot = kda.countVeloFiles()
-        #for k in kda.readVelo():
-            #self.intReady.emit(3,k,tot) 
-        
         self.intReady.emit(99,0,0)
         self.finished.emit()
         
@@ -105,6 +95,7 @@ class MainWindow(QMainWindow):
         #if os.getcwd().startswith('Z:\\BB'):    
             #self.bd = r"K:\TableTopWattBalance\KIBB-g2\DATA"
         #else:
+        self.setWindowIcon(QIcon('k2viewer.png'))
         self.bd='..\DATA'
         self.idle=True
         self.statust=time.time()
@@ -163,14 +154,65 @@ class MainWindow(QMainWindow):
         
         self.sblabel  = QLabel("Click on a run") 
         self.lares    = QLabel("") 
-        self.laUncA   = QLabel("n/a")
         self.laUncTot = QLabel("n/a")
         self.laMass   = QLabel("")
         self.laUnc    = QLabel("")
+        self.laUncB    = QLabel("")
+        self.laMass2   = QLabel("")
+        self.laTotUnc  = QLabel("")
+        self.lacov     = QLabel("(k={0})".format(kda.covk))
+        
+        self.laUa= []
+        self.laUaMaxRows =8
+        self.laUaMaxCols =3
+        for i in range(self.laUaMaxRows):
+            row=[]
+            for j in range(self.laUaMaxCols):
+                row.append( QLabel(""))
+            self.laUa.append(row)
+        for i in range(self.laUaMaxRows):
+            for j in range(self.laUaMaxCols):
+                self.laUa[i][j].setText('')
+
+                
+        self.Uncdict ={'Resistance':0.21,'Voltage': 1.0,'Mass position': 1.0,
+                       'g': 2.0, 'Verticality': 0.5,
+                       'Type A': -1, 'Total': -1, 'Balance mechanics': -1}
+        
+        
+        self.resultLabels=[
+            'Weight designation',
+            'True mass',
+            'Assumed density',
+            'Conventional mass',
+            'Deviation from conv. mass',
+            'Total uncertainy',
+            'Tolerance (Class 3)',
+            'Temperatue',
+            'Barometric pressure',
+            'Humidity'\
+            ]
+        self.laResult=[]
+        myFont=QFont('Arial',18)
+
+        for i in self.resultLabels:
+            row=[]
+            for j in range(3):
+                if j==0:
+                    la =QLabel(i)
+                else:
+                    la=QLabel('')
+                    la.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                la.setFont(myFont)
+                row.append(la )
+            self.laResult.append(row)
+                
+        
         myFont=QFont('Arial',18)
         myFont.setBold(True)
         self.laMass.setFont(myFont)
         self.laUnc.setFont(myFont)
+        self.laUncB.setFont(myFont)
         
         ### Status bar
 
@@ -414,6 +456,7 @@ class MainWindow(QMainWindow):
     def plotMass(self):
         if kda.Mass==0:
             return
+        self.populateUnc()
         self.mplmass.canvas.ax1.clear()
         mutex.lock()
         tmul,tla = kda.tmul()
@@ -426,21 +469,30 @@ class MainWindow(QMainWindow):
                 kda.Mass.dif_d[:,1],kda.Mass.dif_d[:,2],\
                     kda.Mass.dif_d[:,3],fmt='bo')
             tla='z/mm'
-            
-        #mint=np.min(kda.Fresult[:,0]*tmul)
-        #maxt=np.max(kda.Fresult[:,0]*tmul)
         mutex.unlock()
         be,en =self.mplmass.canvas.ax1.get_xlim()
         mean = kda.Mass.avemass
         sig  =  kda.Mass.uncmass
+        sigB = self.totuncB/1000
+        sigAll = self.totuncabs/1000
         self.laMass.setText('{0:8.4f} mg'.format(mean))
-        self.laUnc.setText('{0:4.1f} ug'.format(sig*1000))
+        self.laUnc.setText('\u00B1 {0:4.1f} \u00B5g (Type A)'.format(sig*1000))
+        self.laUncB.setText('\u00B1 {0:4.1f} \u00B5g (Type B)'.format(sigB*1000))
         self.mplmass.canvas.ax1.plot((be,en),\
                         (mean,mean),c='k',linestyle='dashed',lw=2)
         self.mplmass.canvas.ax1.plot((be,en),(mean+sig,mean+sig),\
                                       c='r',linestyle='dashdot')
         self.mplmass.canvas.ax1.plot((be,en),(mean-sig,mean-sig),\
                                       c='r',linestyle='dashdot')
+      
+        self.mplmass.canvas.ax1.plot((be,en),(mean-sigAll,mean-sigAll),\
+                                      c='b',linestyle='dashdot')
+      
+        self.mplmass.canvas.ax1.plot((be,en),(mean+sigAll,mean+sigAll),\
+                                      c='b',linestyle='dashdot')
+        self.mplmass.canvas.ax1.fill_between((be,en), (mean-sigAll,mean-sigAll),\
+                                 (mean+sigAll,mean+sigAll),color='b', alpha=0.2)
+      
         self.mplmass.canvas.ax1.fill_between((be,en), (mean-sig,mean-sig),\
                                  (mean+sig,mean+sig),color='r', alpha=0.2)
         self.mplmass.canvas.ax1.set_xlim(be,en)
@@ -460,7 +512,7 @@ class MainWindow(QMainWindow):
         self.mplmass.canvas.bx1.set_ylim((be-me)*1e3,(en-me)*1e3)
         self.mplmass.canvas.ax1.set_xlabel(tla)    
         self.mplmass.canvas.ax1.set_ylabel('mass /mg')
-        self.mplmass.canvas.bx1.set_ylabel('deviaton  /ug')
+        self.mplmass.canvas.bx1.set_ylabel('deviaton  /\u00B5g')
         self.mplmass.canvas.bx1.ticklabel_format(useOffset=False)
         self.mplmass.canvas.ax1.ticklabel_format(useOffset=False)
         self.mplmass.canvas.draw() 
@@ -484,20 +536,57 @@ class MainWindow(QMainWindow):
         self.mplprofile.canvas.ax1.set_xlabel('z (mm)')
         self.mplprofile.canvas.draw() 
         
-        
-        
+    def populateUnc(self):
+        mean = kda.Mass.avemass
+        sig  =  kda.Mass.uncmass
+        self.Uncdict['Balance mechanics']=1e-3/mean*1e6
+        self.Uncdict['Type A']=sig/mean*1e6/kda.covk
+        cumAll=0
+        cumB=0
+        for k,v in self.Uncdict.items():
+            if k=='Total':
+                continue
+            if k!='Type A':
+                cumB += v*v
+            cumAll+=v*v
+        self.Uncdict['Total'] = np.sqrt(cumAll)
+        self.totuncrel = np.sqrt(cumAll)
+        self.totuncB = np.sqrt(cumB)*1e-6*mean*1000*kda.covk
+        self.totuncabs = np.sqrt(cumAll)*1e-6*mean*1000*kda.covk
         
         
     def plotUnc(self):
-        #print('uu: ',kda.relUncTypeA ,kda.relUncTot )
-        if kda.relUncTypeA <9e99:
-            self.laUncA.setText('{0:3.1f}'.format(kda.relUncTypeA))
-        else:
-            self.laUncA.setText("n/a")
-        if kda.relUncTot<9e99:
-           self.laUncTot.setText('{0:3.1f}'.format(kda.relUncTot))
-        else:
-            self.laUncTot.setText("n/a")
+        if kda.Mass==0:
+            return
+        self.populateUnc()
+        row=0
+        mean = kda.Mass.avemass
+        for cat,rel in sorted(self.Uncdict.items(),\
+                              key=lambda item: item[1],reverse=True):
+            if cat=='Total':
+                prow =self.laUaMaxRows-1
+            else:
+                prow=row
+                row=row+1
+            self.laUa[prow][0].setText('{0:14}'.format(cat))
+            self.laUa[prow][1].setText('{0:4.1f} ppm'.format(rel*kda.covk))
+            self.laUa[prow][2].setText('{0:6.1f} \u00B5g'.format(rel*1e-3*mean*kda.covk))
+            if cat=='Total':
+                myFont=QFont('Arial',18)
+                myFont.setBold(True)
+            else:
+                myFont=QFont('Arial',16)
+                myFont.setBold(False)
+            self.laUa[prow][0].setFont(myFont)
+            self.laUa[prow][1].setFont(myFont)
+            self.laUa[prow][2].setFont(myFont)
+            
+        self.laMass2.setText('{0:8.4f} mg'.format(mean))
+        self.laTotUnc.setText('\u00B1  {0:6.1f} \u00B5g (k={1})'\
+                              .format( self.totuncabs,kda.covk))
+
+            
+        
 
 
     def gotmassval(self,val):
@@ -513,7 +602,100 @@ class MainWindow(QMainWindow):
             kda.calcMass()
             self.replot()
 
-
+    def convmass(self,truemass,density):
+        aird = 1.2
+        steeld =8000
+        conv = truemass*(1-aird/density+aird/steeld)
+        return conv
+    
+    def getol(self,nom):
+        """ reports toleance in mg, nom is in g"""
+        if nom==20:
+            return 0.35
+        elif nom==10:
+            return 0.25
+        elif nom==5:
+            return 0.18
+        elif nom==3:
+            return 0.15        
+        elif nom==2:
+            return 0.13
+        elif nom==1:
+            return 0.1
+        elif nom==0.5:
+            return 0.08
+        elif nom==0.3:
+            return 0.07
+        elif nom==0.2:
+            return 0.06
+        elif nom==0.1:
+            return 0.05
+        elif nom==0.05:
+            return 0.042
+        elif nom==0.02:
+            return 0.035
+        elif nom==0.01:
+            return 0.030
+        return 0
+        
+        
+    
+    def plotReport(self):
+        if kda.Mass==0:
+            for i in self.laResult:
+                i[1].setText('')
+                i[2].setText('')
+            return
+        else:
+            self.populateUnc()
+            nom =kda.c.mydict['Nominal']
+            if nom>=0.995:
+                self.laResult[0][1].setText('{0}'.format(nom))
+                self.laResult[0][2].setText('g')
+            else:                
+                self.laResult[0][1].setText('{0}'.format(nom*1000))
+                self.laResult[0][2].setText('mg')
+            m =kda.Mass.avemass
+            if m>=995:
+                self.laResult[1][1].setText('{0:10.7f}'.format(m/1000))
+                self.laResult[1][2].setText('g')
+            else:
+                self.laResult[1][1].setText('{0:10.4f}'.format(m))
+                self.laResult[1][2].setText('mg')
+            conv = self.convmass(m,kda.c.dens)
+            self.laResult[2][1].setText('{0:4.1f}'.format(kda.c.dens/1000))
+            self.laResult[2][2].setText('g/cm\u00B3')
+            if conv>=995:
+                self.laResult[3][1].setText('{0:10.7f}'.format(conv/1000))
+                self.laResult[3][2].setText('g')
+            else:
+                self.laResult[3][1].setText('{0:10.4f}'.format(conv))
+                self.laResult[3][2].setText('mg')
+            
+            self.laResult[4][1].setText('{0:8.4f}'.format(conv-nom*1000))
+            self.laResult[4][2].setText('mg')
+               
+            unc =self.totuncabs
+            print(unc)
+            self.laResult[5][1].setText('{0:6.4f}'.format(unc/1000))
+            self.laResult[5][2].setText('mg')
+            tol = self.getol(nom)            
+            self.laResult[6][1].setText('{0:6.4f}'.format(tol))
+            self.laResult[6][2].setText('mg')
+            
+            temp = np.mean(kda.myEnv.edata[:,3])
+            self.laResult[7][1].setText('{0:6.3f}'.format(temp))
+            self.laResult[7][2].setText('\u00b0C')
+            press = np.mean(kda.myEnv.edata[:,2])/133.322
+            self.laResult[8][1].setText('{0:6.3f}'.format(press))
+            self.laResult[8][2].setText('mm Hg')
+            hum = np.mean(kda.myEnv.edata[:,1])
+            self.laResult[9][1].setText('{0:6.2f}'.format(hum))
+            self.laResult[9][2].setText('% rel')
+            
+                
+        
+        
 
 
     def replot(self):
@@ -529,10 +711,10 @@ class MainWindow(QMainWindow):
             self.plotMass()
         elif tat=='Profile':
             self.plotProfile()
-
-    #      elif tat=='Uncertainty':
-   #         self.plotUnc()
-    
+        elif tat=='Uncertainty':
+            self.plotUnc()    
+        elif tat=='Report':
+            self.plotReport()
    
             
     def updateTable(self):
@@ -614,24 +796,22 @@ class MainWindow(QMainWindow):
          
 class MyTabWidget(QWidget): 
     def __init__(self, parent): 
-        super(QWidget, self).__init__(parent) 
-  
+        super(QWidget, self).__init__(parent)  
         self.layout = QVBoxLayout(self) 
-
         # Initialize tab screen 
-        self.tabs = QTabWidget() 
-        self.tab1 = QWidget() 
-        self.tab2 = QWidget() 
-        self.tab3 = QWidget() 
-        self.tab4 = QWidget() 
-        self.tab5 = QWidget() 
-        self.tab6 = QWidget() 
+        self.tabs     = QTabWidget() 
+        self.tabForce = QWidget() 
+        self.tabEnv   = QWidget() 
+        self.tabVelo  = QWidget() 
+        self.tabMass  = QWidget() 
+        self.tabUnc     = QWidget() 
+        self.tabProfile = QWidget() 
+        self.tabReport = QWidget() 
         self.tabs.resize(300, 200) 
-  
         # Add tabs 
   
-        # Create first tab 
-        self.tab1.layout = QHBoxLayout()
+        # Create Force tab 
+        self.tabForce.layout = QHBoxLayout()
         tab1ctrl = QVBoxLayout()
         l1 = QLabel() 
         l1.setText("Forcemode") 
@@ -639,8 +819,7 @@ class MyTabWidget(QWidget):
         l2 = QLabel() 
         l2.setText("show voltage")
         h1.addWidget(l2)
-        h1.addWidget(parent.cbShowVolt)
-        
+        h1.addWidget(parent.cbShowVolt)   
         verticalSpacer = QSpacerItem(20, 40, 
                                      QSizePolicy.Minimum, 
                                      QSizePolicy.Expanding)
@@ -650,130 +829,116 @@ class MyTabWidget(QWidget):
         tab1ctrl.addItem(verticalSpacer)
         
         
-        self.tab1.layout.addLayout(tab1ctrl)
-        self.tab1.layout.addWidget(parent.mplfor) 
-        self.tab1.setLayout(self.tab1.layout) 
+        self.tabForce.layout.addLayout(tab1ctrl)
+        self.tabForce.layout.addWidget(parent.mplfor) 
+        self.tabForce.setLayout(self.tabForce.layout) 
         
-        # Create sceond tab 
-        self.tab2.layout = QHBoxLayout()
-        self.tab2.layout.addWidget(parent.mplenv)
-        self.tab2.setLayout(self.tab2.layout) 
+        # Create Env tab 
+        self.tabEnv.layout = QHBoxLayout()
+        self.tabEnv.layout.addWidget(parent.mplenv)
+        self.tabEnv.setLayout(self.tabEnv.layout) 
     
-        # Create third tab 
-        self.tab3.layout = QHBoxLayout()
-        tab3ctrl = QVBoxLayout()
+        # Create tVelo tab 
+        self.tabVelo.layout = QHBoxLayout()
+        tabVeloctrl = QVBoxLayout()
         l1 = QLabel() 
         l1.setText("Velocitymode") 
-        h1 = QHBoxLayout()
-        
+        h1 = QHBoxLayout()      
         verticalSpacer = QSpacerItem(20, 40, 
                                      QSizePolicy.Minimum, 
                                      QSizePolicy.Expanding)
+        tabVeloctrl.addWidget(l1)
+        tabVeloctrl.addLayout(h1)
+        tabVeloctrl.addItem(verticalSpacer)
+        self.tabVelo.layout.addLayout(tabVeloctrl)
+        self.tabVelo.layout.addWidget(parent.mplvel) 
+        self.tabVelo.setLayout(self.tabVelo.layout) 
 
-
-
-        tab3ctrl.addWidget(l1)
-        tab3ctrl.addLayout(h1)
-        tab3ctrl.addItem(verticalSpacer)
-        
-        self.tab3.layout.addLayout(tab3ctrl)
-        self.tab3.layout.addWidget(parent.mplvel) 
-        self.tab3.setLayout(self.tab3.layout) 
-        
-
-        # Create forth tab 
-        self.tab4.layout = QHBoxLayout()
-        tab4ctrl = QVBoxLayout()
-        
-        #h4 = QHBoxLayout()
+        # Create Mass tab 
+        self.tabMass.layout = QHBoxLayout()
+        tabMassctrl = QVBoxLayout()
         l4b = QLabel() 
-        l4b.setText("ref. mass (mg):")
-        #h4.addWidget(l4b)
-        #h4.addWidget(parent.sbMass)
-        
+        l4b.setText("ref. mass (mg):")    
         verticalSpacer = QSpacerItem(20, 40, 
                                      QSizePolicy.Minimum, 
                                      QSizePolicy.Expanding)
         l4a = QLabel() 
         l4a.setText("mass")
-
-        tab4ctrl.addWidget(l4a)
-        tab4ctrl.addWidget(l4b)
-        tab4ctrl.addWidget(parent.sbMass)
-        tab4ctrl.addWidget(QLabel("Measured Mass:")) 
-        tab4ctrl.addWidget(parent.laMass)
-        tab4ctrl.addWidget(QLabel("+/-")) 
-        tab4ctrl.addWidget(parent.laUnc)
+        tabMassctrl.addWidget(l4a)
+        tabMassctrl.addWidget(l4b)
+        tabMassctrl.addWidget(parent.sbMass)
+        tabMassctrl.addWidget(QLabel("Measured Mass:")) 
+        tabMassctrl.addWidget(parent.laMass)
+        tabMassctrl.addWidget(parent.laUnc)
+        tabMassctrl.addWidget(parent.laUncB)
+        tabMassctrl.addWidget(parent.lacov)
         h1 = QHBoxLayout()
         h1.addWidget(parent.cbMvsZ)
         h1.addWidget(QLabel('plot vs z'))
-        tab4ctrl.addLayout(h1) 
-        
-        tab4ctrl.addItem(verticalSpacer)
-        
-        self.tab4.layout.addLayout(tab4ctrl)
-        self.tab4.layout.addWidget(parent.mplmass)
-        self.tab4.setLayout(self.tab4.layout) 
+        tabMassctrl.addLayout(h1) 
+        tabMassctrl.addItem(verticalSpacer)
+        self.tabMass.layout.addLayout(tabMassctrl)
+        self.tabMass.layout.addWidget(parent.mplmass)
+        self.tabMass.setLayout(self.tabMass.layout) 
     
-        # Create fifth tab 
-        self.tab5.layout =  QGridLayout()
-        self.tab5.layout.setColumnStretch(12, 3)
-        self.tab5.layout.addWidget(QLabel('Item'),0,0)
-        self.tab5.layout.addWidget(QLabel('rel. unc/ppm'),0,1)
-        self.tab5.layout.addWidget(QLabel('unc/ug'),0,2)
+        # Create Uncertainty tab 
+        self.tabUnc.layout =  QGridLayout()
         
-        self.tab5.layout.addWidget(QLabel('Resistor'),1,0)
-        self.tab5.layout.addWidget(QLabel('1.4'),1,1)
-        
-        self.tab5.layout.addWidget(QLabel('Voltmeter'),2,0)
-        self.tab5.layout.addWidget(QLabel('1.0'),2,1)
- 
-        self.tab5.layout.addWidget(QLabel('mass position'),3,0)
-        self.tab5.layout.addWidget(QLabel('1.0'),3,1)
+        self.tabUnc.layout.setColumnStretch(parent.laUaMaxRows+1, parent.laUaMaxCols)
+        myFont=QFont('Arial',16)
+        myFont.setBold(False)
 
-        self.tab5.layout.addWidget(QLabel('g'),4,0)
-        self.tab5.layout.addWidget(QLabel('2.0'),4,1)
-        
-        self.tab5.layout.addWidget(QLabel('verticality'),5,0)
-        self.tab5.layout.addWidget(QLabel('0.5'),5,1)
-
-        self.tab5.layout.addWidget(QLabel('statistical'),6,0)
-        self.tab5.layout.addWidget(parent.laUncA,6,1)
-
-
-        # Create sceond tab 
-        self.tab6.layout = QHBoxLayout()
-        self.tab6.layout.addWidget(parent.mplprofile)
-        self.tab6.setLayout(self.tab6.layout) 
-
-
-        
-        
-        
-        
-        ltot = QLabel('total')
-        self.tab5.layout.addWidget(ltot,7,0)
-        self.tab5.layout.addWidget(parent.laUncTot,7,1)
-        
-        myFont=QFont()
+        la10 = QLabel('Item')
+        la11 = QLabel('rel. unc.')
+        la12 = QLabel('uncertainty')
+        la10.setFont(myFont)
+        la11.setFont(myFont)
+        la12.setFont(myFont)
+        myFont=QFont('Arial',16)
         myFont.setBold(True)
-        parent.laUncTot.setFont(myFont)
-        ltot.setFont(myFont)
-
-
-        self.tab5.setLayout(self.tab5.layout)
-            
  
+        la00 = QLabel('measured mass')
+        la00.setFont(myFont)
+        parent.laMass2.setFont(myFont)
+        parent.laTotUnc.setFont(myFont)
+
+        self.tabUnc.layout.addWidget(la00,0,0)
+        self.tabUnc.layout.addWidget(parent.laMass2,0,1)
+        self.tabUnc.layout.addWidget(parent.laTotUnc,0,2)
+
+        self.tabUnc.layout.addWidget(la10,1,0)
+        self.tabUnc.layout.addWidget(la11,1,1)
+        self.tabUnc.layout.addWidget(la12,1,2)
+        for i in range(parent.laUaMaxRows):
+            for j in range(parent.laUaMaxCols):
+                self.tabUnc.layout.addWidget(parent.laUa[i][j],i+2,j)
+
+        self.tabUnc.setLayout(self.tabUnc.layout)
+        # Create tab6 tab 
+        self.tabProfile.layout = QHBoxLayout()
+        self.tabProfile.layout.addWidget(parent.mplprofile)
+        self.tabProfile.setLayout(self.tabProfile.layout) 
+        
+        # Create Report tab 
+        self.tabReport.layout =  QGridLayout()
+        
+        self.tabReport.layout.setColumnStretch(len(parent.resultLabels), 2)
+        for n,i in enumerate(parent.laResult):
+            for m,j in enumerate(i):
+                self.tabReport.layout.addWidget(j,n,m)
+        
+        self.tabReport.setLayout(self.tabReport.layout) 
   
         # Add tabs to widget 
         self.layout.addWidget(self.tabs) 
         self.setLayout(self.layout) 
-        self.tabs.addTab(self.tab4, "Mass") 
-        self.tabs.addTab(self.tab1, "Force") 
-        self.tabs.addTab(self.tab2, "Environmentals") 
-        self.tabs.addTab(self.tab3, "Velocity") 
-        self.tabs.addTab(self.tab6, "Profile")
-        self.tabs.addTab(self.tab5, "Uncertainty") 
+        self.tabs.addTab(self.tabMass, "Mass") 
+        self.tabs.addTab(self.tabForce, "Force") 
+        self.tabs.addTab(self.tabEnv, "Environmentals") 
+        self.tabs.addTab(self.tabVelo, "Velocity") 
+        self.tabs.addTab(self.tabProfile, "Profile")
+        self.tabs.addTab(self.tabUnc, "Uncertainty") 
+        self.tabs.addTab(self.tabReport, "Report") 
 
 
 
@@ -788,7 +953,8 @@ def excepthook(exc_type, exc_value, exc_tb):
     QApplication.quit()
     # or QtWidgets.QApplication.exit(0)
 
-
+myappid = 'mycompany.myproduct.subproduct.version' # arbitrary string
+ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
 app = QApplication(sys.argv)
 sys.excepthook = excepthook
 
