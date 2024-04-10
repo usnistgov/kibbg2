@@ -194,7 +194,6 @@ def findmin2(t,y,tmin,tmax,hars=[1,2,3,4]):
         o,a,p,c2,_=fit_sine(t,y,tmin+tt,hars)
         C2.append(c2)
     pf=np.polyfit(TT,C2,2)
-    #print(pf)
     # y = ax^2+bx+c -> 2*ax+b=0 x= -b/(2a)
     return tmin-pf[1]/2/pf[0]
 
@@ -226,7 +225,6 @@ def findmin2(t,y,tmin,tmax,hars=[1,2,3,4]):
         o,a,p,c2,_=fit_sine(t,y,tmin+tt,hars)
         C2.append(c2)
     pf=np.polyfit(TT,C2,2)
-    #print(pf)
     # y = ax^2+bx+c -> 2*ax+b=0 x= -b/(2a)
     return tmin-pf[1]/2/pf[0]
 

@@ -296,7 +296,6 @@ class Mass:
         for g in range(1+int(np.max(of_grp))):
             ofix = np.where(self.of_d[:,4]==g)[0]
             onix = np.where(self.on_d[:,4]==g)[0]
-            #print(oifx)
             of_d =self.of_d[ofix,:]
             on_d =self.on_d[onix,:]
 
@@ -316,7 +315,6 @@ class Mass:
         for g in range(1+int(np.max(of_grp))):
             ofix = np.where(self.ofa_d[:,4]==g)[0]
             onix = np.where(self.on_d[:,4]==g)[0]
-            #print(oifx)
             of_d =self.ofa_d[ofix,:]
             on_d =self.on_d[onix,:]
 
@@ -444,8 +442,10 @@ class MyEnv():
         self.edata = []
         
     
-    def setbd0(self,bd0):
+    def setbd0(self,bd0,guesslen):
         self.bd0=bd0
+        self.guesslen = guesslen
+
         if self.bd0=='':          
             return            
         if 'PRTData.dat' not in os.listdir(self.bd0):
@@ -510,7 +510,7 @@ class k2Set():
     
         
     def readEnv(self):
-        self.myEnv.setbd0(self.bd0)
+        self.myEnv.setbd0(self.bd0,self.guesslen)
         
 
     def setbd0(self,bd0):
@@ -531,6 +531,9 @@ class k2Set():
             all=[os.path.join(bd1,i) for i in os.listdir(bd1)] + [os.path.join(bd2,i) for i in os.listdir(bd2)]
             ap = [Path(i) for i in all]
             u = sorted(ap,key=os.path.getmtime)
+            start = os.path.getmtime(u[0])
+            stop = os.path.getmtime(u[-1])
+            self.guesslen = stop-start
         return [str(i) for i in u]
     
     def getftype(self,wpath):

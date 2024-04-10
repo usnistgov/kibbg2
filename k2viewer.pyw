@@ -57,6 +57,8 @@ kda =   k2dataset.k2Set(mutex)
 kda.setcoverage(2) 
 kda.clear()
 
+
+
 class Worker(QObject):
     finished = pyqtSignal()
     intReady = pyqtSignal(int,int,int)
@@ -95,6 +97,15 @@ class MainWindow(QMainWindow):
         #if os.getcwd().startswith('Z:\\BB'):    
             #self.bd = r"K:\TableTopWattBalance\KIBB-g2\DATA"
         #else:
+            
+            
+        self.foBig     = QFont('Arial',10)
+        self.foBigBold = QFont('Arial',10)
+        self.foBigBold.setBold(True)
+
+        
+
+        
         self.setWindowIcon(QIcon('k2viewer.png'))
         self.bd='..\DATA'
         self.idle=True
@@ -193,7 +204,6 @@ class MainWindow(QMainWindow):
             'Humidity'\
             ]
         self.laResult=[]
-        myFont=QFont('Arial',18)
 
         for i in self.resultLabels:
             row=[]
@@ -203,16 +213,14 @@ class MainWindow(QMainWindow):
                 else:
                     la=QLabel('')
                     la.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                la.setFont(myFont)
+                la.setFont(self.foBig)
                 row.append(la )
             self.laResult.append(row)
                 
         
-        myFont=QFont('Arial',18)
-        myFont.setBold(True)
-        self.laMass.setFont(myFont)
-        self.laUnc.setFont(myFont)
-        self.laUncB.setFont(myFont)
+        self.laMass.setFont(self.foBigBold)
+        self.laUnc.setFont(self.foBigBold)
+        self.laUncB.setFont(self.foBigBold)
         
         ### Status bar
 
@@ -279,12 +287,24 @@ class MainWindow(QMainWindow):
         self.sbMass.valueChanged.connect(self.gotmassval)
         
 
-    
+    def createdb(self):
+        connection = sqlite3.connect('k2viewer.db')
+        cursor = connection.cursor()
+        cursor.execute("""
+                       CREATE TABLE k2data (run TEXT UNIQUE, value FLOAT,
+                    uncertainty FLOAT, title TEXT, time TIMESTAMP, airdens FLOAT)""")
+                       
+        connection.close()
+
+
 
     def loadTable(self):
          c = k2dataset.MyConfig()
          self.mytable.clearContents()
          self.mytable.setRowCount(0)
+         if os.path.isfile('k2viewer.db')==False:
+             self.createdb()
+             
          connection = sqlite3.connect('k2viewer.db')
          cursor = connection.cursor()
 
@@ -302,7 +322,6 @@ class MainWindow(QMainWindow):
                             if os.path.isfile(os.path.join(s3,'config.ini'))==False:
                                 continue
                             c.setbd0(s3)
-                            #print(c.title)
                             letter=os.path.split(s3)[-1]
                             if len(letter)==1:
                                 run =yymm+day+letter
@@ -317,7 +336,6 @@ class MainWindow(QMainWindow):
                                 if len(dbentry)==0:
                                     continue
                                 dbentry=dbentry[0]
-                                #print(dbentry)
                                 if dbentry[1]>-9e96:
                                     nitem =QTableWidgetItem('{0:,.4f}'.format(dbentry[1]*1e3) )
                                 else:
@@ -572,11 +590,9 @@ class MainWindow(QMainWindow):
             self.laUa[prow][1].setText('{0:4.1f} ppm'.format(rel*kda.covk))
             self.laUa[prow][2].setText('{0:6.1f} \u00B5g'.format(rel*1e-3*mean*kda.covk))
             if cat=='Total':
-                myFont=QFont('Arial',18)
-                myFont.setBold(True)
+                myFont=self.foBigBold
             else:
-                myFont=QFont('Arial',16)
-                myFont.setBold(False)
+                myFont=self.foBig
             self.laUa[prow][0].setFont(myFont)
             self.laUa[prow][1].setFont(myFont)
             self.laUa[prow][2].setFont(myFont)
@@ -676,7 +692,6 @@ class MainWindow(QMainWindow):
             self.laResult[4][2].setText('mg')
                
             unc =self.totuncabs
-            print(unc)
             self.laResult[5][1].setText('{0:6.4f}'.format(unc/1000))
             self.laResult[5][2].setText('mg')
             tol = self.getol(nom)            
@@ -686,7 +701,7 @@ class MainWindow(QMainWindow):
             temp = np.mean(kda.myEnv.edata[:,3])
             self.laResult[7][1].setText('{0:6.3f}'.format(temp))
             self.laResult[7][2].setText('\u00b0C')
-            press = np.mean(kda.myEnv.edata[:,2])/133.322
+            press = np.mean(kda.myEnv.edata[:,2])/1.33322
             self.laResult[8][1].setText('{0:6.3f}'.format(press))
             self.laResult[8][2].setText('mm Hg')
             hum = np.mean(kda.myEnv.edata[:,1])
@@ -885,22 +900,18 @@ class MyTabWidget(QWidget):
         self.tabUnc.layout =  QGridLayout()
         
         self.tabUnc.layout.setColumnStretch(parent.laUaMaxRows+1, parent.laUaMaxCols)
-        myFont=QFont('Arial',16)
-        myFont.setBold(False)
-
+  
         la10 = QLabel('Item')
         la11 = QLabel('rel. unc.')
         la12 = QLabel('uncertainty')
-        la10.setFont(myFont)
-        la11.setFont(myFont)
-        la12.setFont(myFont)
-        myFont=QFont('Arial',16)
-        myFont.setBold(True)
+        la10.setFont(parent.foBig)
+        la11.setFont(parent.foBig)
+        la12.setFont(parent.foBig)
  
         la00 = QLabel('measured mass')
-        la00.setFont(myFont)
-        parent.laMass2.setFont(myFont)
-        parent.laTotUnc.setFont(myFont)
+        la00.setFont(parent.foBigBold)
+        parent.laMass2.setFont(parent.foBigBold)
+        parent.laTotUnc.setFont(parent.foBigBold)
 
         self.tabUnc.layout.addWidget(la00,0,0)
         self.tabUnc.layout.addWidget(parent.laMass2,0,1)
