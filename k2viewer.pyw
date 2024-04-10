@@ -185,7 +185,7 @@ class MainWindow(QMainWindow):
             'True mass',
             'Assumed density',
             'Conventional mass',
-            'Deviation from conv. mass',
+            'Deviation from nominal',
             'Total uncertainy',
             'Tolerance (Class 3)',
             'Temperatue',
