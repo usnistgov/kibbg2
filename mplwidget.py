@@ -47,10 +47,10 @@ class MplWidget(QWidget):
 class MplCanvas2(FigureCanvasQTAgg):
     def __init__(self):
         self.fig = Figure()
-        ll=0.15
+        ll=0.22
         bb=0.15
         h=0.35
-        w=0.8
+        w=0.75
         dy=0.1
         self.ax1 = self.fig.add_axes((ll,bb+1*h+dy,w,h))
         self.ax2 = self.fig.add_axes((ll,bb+0*h,w,h))

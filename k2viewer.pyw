@@ -524,7 +524,7 @@ class MainWindow(QMainWindow):
         self.mplmass.canvas.ax1.fill_between((be,en), (mean-sig,mean-sig),\
                                  (mean+sig,mean+sig),color='r', alpha=0.2)
         self.mplmass.canvas.ax1.set_xlim(be,en)
-        if kda.hasRefMass:
+        if kda.hasRefMass==True:
              be,en =self.mplmass.canvas.ax1.get_xlim()
              self.mplmass.canvas.ax1.plot((be,en),
                                           (kda.refMass,kda.refMass),c='m',
@@ -616,8 +616,9 @@ class MainWindow(QMainWindow):
 
 
     def gotmassval(self,val):
-        kda.setRefMass(val)
-        self.plotMass()
+        if val!=0:
+            kda.setRefMass(val)
+            self.plotMass()
         
 
 
@@ -713,40 +714,42 @@ class MainWindow(QMainWindow):
         wb = xlutils.copy.copy(rb) 
         sheet = wb.get_sheet(0) 
         ser = kda.c.mydict['SerialNo']
-        sheet.write(r,0, ser)
+        sheet.write(r,0,now.strftime('%m/%d/%Y'))
+        sheet.write(r,1,now.strftime('%H:%M:%S'))
+        sheet.write(r,2, ser)
         nom =kda.c.mydict['Nominal']
         if nom>=0.995:
-            sheet.write(r,1, '{0}'.format(nom))
+            sheet.write(r,3, '{0}'.format(nom))
         else:
-            sheet.write(r,1, '{0}'.format(nom))            
+            sheet.write(r,3, '{0}'.format(nom))            
         m =kda.Mass.avemass
         if m>=995:
-            sheet.write(r,2, '{0:10.7f}'.format(m/1000))
-        else:
-            sheet.write(r,2, '{0:10.9f}'.format(m/1000))
-            
-        conv = self.convmass(m,kda.c.dens)
-        sheet.write(r,3, '{0:10.7f}'.format(kda.c.dens/1000))
-        if conv>=995:
             sheet.write(r,4, '{0:10.7f}'.format(m/1000))
         else:
             sheet.write(r,4, '{0:10.9f}'.format(m/1000))
-        sheet.write(r,5, '{0:8.4f}'.format(conv-nom*1000))
+            
+        conv = self.convmass(m,kda.c.dens)
+        sheet.write(r,5, '{0:10.7f}'.format(kda.c.dens/1000))
+        if conv>=995:
+            sheet.write(r,6, '{0:10.7f}'.format(m/1000))
+        else:
+            sheet.write(r,6, '{0:10.9f}'.format(m/1000))
+        sheet.write(r,7, '{0:8.4f}'.format(conv-nom*1000))
         unc =self.totuncabs
-        sheet.write(r,6, '{0:6.4f}'.format(unc/1000))
+        sheet.write(r,8, '{0:6.4f}'.format(unc/1000))
         tol = self.getol(nom)            
-        sheet.write(r,7, '{0:6.4f}'.format(tol/1000))
+        sheet.write(r,9, '{0:6.4f}'.format(tol/1000))
         if kda.myEnv.hasEnv==2:
-            sheet.write(r,8, 'nominal')
-            sheet.write(r,9, 'nominal')
-            sheet.write(r,10,'nominal')
+            sheet.write(r,10, 'nominal')
+            sheet.write(r,11, 'nominal')
+            sheet.write(r,12,'nominal')
         else:
             temp = np.mean(kda.myEnv.edata[:,3])
-            sheet.write(r,8, '{0:6.3f}'.format(temp))          
+            sheet.write(r,10, '{0:6.3f}'.format(temp))          
             press = np.mean(kda.myEnv.edata[:,2])/1.33322
-            sheet.write(r,9, '{0:6.3f}'.format(press))
+            sheet.write(r,11, '{0:6.3f}'.format(press))
             hum = np.mean(kda.myEnv.edata[:,1])
-            sheet.write(r,10, '{0:6.2f}'.format(hum))
+            sheet.write(r,12, '{0:6.2f}'.format(hum))
         wb.save(fifn)
     
     def plotReport(self):    
