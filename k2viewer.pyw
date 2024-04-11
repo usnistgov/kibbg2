@@ -1,6 +1,9 @@
 import os,sys
 import traceback
 import ctypes
+import xlwt,xlrd,xlutils.copy
+import datetime
+from shutil import copyfile
 
 ##https://www.pythonguis.com/tutorials/pyqt-basic-widgets/
 ##
@@ -84,10 +87,9 @@ class Worker(QObject):
                 kda.myOffs.aveForce()
             if k>=1:
                 kda.calcMass()
-            self.intReady.emit(1,k+1,maxgrp+1) 
+            self.intReady.emit(1,k+1,maxgrp+1)          
         self.intReady.emit(99,0,0) 
         
-        self.intReady.emit(99,0,0)
         self.finished.emit()
         
 # Subclass QMainWindow to customize your application's main window
@@ -172,6 +174,8 @@ class MainWindow(QMainWindow):
         self.laMass2   = QLabel("")
         self.laTotUnc  = QLabel("")
         self.lacov     = QLabel("(k={0})".format(kda.covk))
+        self.laNoEnv   = QLabel("")
+
         
         self.laUa= []
         self.laUaMaxRows =8
@@ -192,6 +196,7 @@ class MainWindow(QMainWindow):
         
         
         self.resultLabels=[
+            'Serial Number',
             'Weight designation',
             'True mass',
             'Assumed density',
@@ -337,13 +342,13 @@ class MainWindow(QMainWindow):
                                     continue
                                 dbentry=dbentry[0]
                                 if dbentry[1]>-9e96:
-                                    nitem =QTableWidgetItem('{0:,.4f}'.format(dbentry[1]*1e3) )
+                                    nitem =QTableWidgetItem('{0:,.4f}'.format(dbentry[1]) )
                                 else:
                                     nitem =QTableWidgetItem('n/a')
                                 nitem.setTextAlignment(int(Qt.AlignRight | Qt.AlignVCenter))
                                 self.mytable.setItem(row_number,2,nitem)
                                 if dbentry[2]>-9e96:
-                                    nitem =QTableWidgetItem('{0:6.4f}'.format(dbentry[2]*1e3))
+                                    nitem =QTableWidgetItem('{0:6.4f}'.format(dbentry[2]))
                                 else:
                                     nitem =QTableWidgetItem('n/a')                                
                                 nitem.setTextAlignment(int(Qt.AlignRight | Qt.AlignVCenter))
@@ -496,6 +501,11 @@ class MainWindow(QMainWindow):
         self.laMass.setText('{0:8.4f} mg'.format(mean))
         self.laUnc.setText('\u00B1 {0:4.1f} \u00B5g (Type A)'.format(sig*1000))
         self.laUncB.setText('\u00B1 {0:4.1f} \u00B5g (Type B)'.format(sigB*1000))
+        if kda.myEnv.hasEnv==2:
+            self.laNoEnv.setText('No Env data available')
+        else:
+            self.laNoEnv.setText('')
+            
         self.mplmass.canvas.ax1.plot((be,en),\
                         (mean,mean),c='k',linestyle='dashed',lw=2)
         self.mplmass.canvas.ax1.plot((be,en),(mean+sig,mean+sig),\
@@ -654,9 +664,92 @@ class MainWindow(QMainWindow):
             return 0.030
         return 0
         
-        
     
-    def plotReport(self):
+    def WriteExcelHdr(self,fifn):
+        if os.path.isfile('templ.xls'):
+            copyfile('templ.xls',fifn)
+            return
+        book = xlwt.Workbook(encoding="utf-8")
+
+        sheet1 = book.add_sheet("Sheet 1")
+
+        sheet1.write(0,  0, "Serial Number")
+        sheet1.write(0,  1, "Designated Weight")
+        sheet1.write(0,  2, "True Mass")
+        sheet1.write(0,  3, "Assumed Dens.")
+        sheet1.write(0,  4, "Conv. Mass")
+        sheet1.write(0,  5, "Dev. from Nom.")
+        sheet1.write(0,  6, "Total Unc.")
+        sheet1.write(0,  7, "Tolerance")
+        sheet1.write(0,  8, "Temp.")
+        sheet1.write(0 , 9, "Press.")
+        sheet1.write(0, 10, "Humid.")
+
+        sheet1.write(1,  0, "")
+        sheet1.write(1,  1, "")
+        sheet1.write(1,  2, "g")
+        sheet1.write(1,  3, "g/cm3")
+        sheet1.write(1,  4, "g")
+        sheet1.write(1,  5, "mg")
+        sheet1.write(1,  6, "mg")
+        sheet1.write(1,  7, "mg")
+        sheet1.write(1,  8, "degC")
+        sheet1.write(1,  9, "mmHg")
+        sheet1.write(1, 10, "%rel")
+        
+        book.save(fifn)
+            
+    def WriteExcel(self):
+        if kda.Mass==0:
+            return
+        now = datetime.datetime.now()
+        fn = 'kibbg2_{0}.xls'.format(now.strftime('%Y%m'))
+        fifn=os.path.join(r'..\results',fn)
+        if os.path.isfile(fifn)==False:
+            self.WriteExcelHdr(fifn)
+        rb = xlrd.open_workbook(fifn,formatting_info=True)
+        r_sheet = rb.sheet_by_index(0) 
+        r = r_sheet.nrows
+        wb = xlutils.copy.copy(rb) 
+        sheet = wb.get_sheet(0) 
+        ser = kda.c.mydict['SerialNo']
+        sheet.write(r,0, ser)
+        nom =kda.c.mydict['Nominal']
+        if nom>=0.995:
+            sheet.write(r,1, '{0}'.format(nom))
+        else:
+            sheet.write(r,1, '{0}'.format(nom))            
+        m =kda.Mass.avemass
+        if m>=995:
+            sheet.write(r,2, '{0:10.7f}'.format(m/1000))
+        else:
+            sheet.write(r,2, '{0:10.9f}'.format(m/1000))
+            
+        conv = self.convmass(m,kda.c.dens)
+        sheet.write(r,3, '{0:10.7f}'.format(kda.c.dens/1000))
+        if conv>=995:
+            sheet.write(r,4, '{0:10.7f}'.format(m/1000))
+        else:
+            sheet.write(r,4, '{0:10.9f}'.format(m/1000))
+        sheet.write(r,5, '{0:8.4f}'.format(conv-nom*1000))
+        unc =self.totuncabs
+        sheet.write(r,6, '{0:6.4f}'.format(unc/1000))
+        tol = self.getol(nom)            
+        sheet.write(r,7, '{0:6.4f}'.format(tol/1000))
+        if kda.myEnv.hasEnv==2:
+            sheet.write(r,8, 'nominal')
+            sheet.write(r,9, 'nominal')
+            sheet.write(r,10,'nominal')
+        else:
+            temp = np.mean(kda.myEnv.edata[:,3])
+            sheet.write(r,8, '{0:6.3f}'.format(temp))          
+            press = np.mean(kda.myEnv.edata[:,2])/1.33322
+            sheet.write(r,9, '{0:6.3f}'.format(press))
+            hum = np.mean(kda.myEnv.edata[:,1])
+            sheet.write(r,10, '{0:6.2f}'.format(hum))
+        wb.save(fifn)
+    
+    def plotReport(self):    
         if kda.Mass==0:
             for i in self.laResult:
                 i[1].setText('')
@@ -664,49 +757,57 @@ class MainWindow(QMainWindow):
             return
         else:
             self.populateUnc()
+            ser = kda.c.mydict['SerialNo']
+            self.laResult[0][1].setText(ser)
             nom =kda.c.mydict['Nominal']
             if nom>=0.995:
-                self.laResult[0][1].setText('{0}'.format(nom))
-                self.laResult[0][2].setText('g')
+                self.laResult[1][1].setText('{0}'.format(nom))
+                self.laResult[1][2].setText('g')
             else:                
-                self.laResult[0][1].setText('{0}'.format(nom*1000))
-                self.laResult[0][2].setText('mg')
+                self.laResult[1][1].setText('{0}'.format(nom*1000))
+                self.laResult[1][2].setText('mg')
             m =kda.Mass.avemass
             if m>=995:
-                self.laResult[1][1].setText('{0:10.7f}'.format(m/1000))
-                self.laResult[1][2].setText('g')
+                self.laResult[2][1].setText('{0:10.7f}'.format(m/1000))
+                self.laResult[2][2].setText('g')
             else:
-                self.laResult[1][1].setText('{0:10.4f}'.format(m))
-                self.laResult[1][2].setText('mg')
+                self.laResult[2][1].setText('{0:10.4f}'.format(m))
+                self.laResult[2][2].setText('mg')
             conv = self.convmass(m,kda.c.dens)
-            self.laResult[2][1].setText('{0:4.1f}'.format(kda.c.dens/1000))
-            self.laResult[2][2].setText('g/cm\u00B3')
+            self.laResult[3][1].setText('{0:4.1f}'.format(kda.c.dens/1000))
+            self.laResult[3][2].setText('g/cm\u00B3')
             if conv>=995:
-                self.laResult[3][1].setText('{0:10.7f}'.format(conv/1000))
-                self.laResult[3][2].setText('g')
+                self.laResult[4][1].setText('{0:10.7f}'.format(conv/1000))
+                self.laResult[4][2].setText('g')
             else:
-                self.laResult[3][1].setText('{0:10.4f}'.format(conv))
-                self.laResult[3][2].setText('mg')
+                self.laResult[4][1].setText('{0:10.4f}'.format(conv))
+                self.laResult[4][2].setText('mg')
             
-            self.laResult[4][1].setText('{0:8.4f}'.format(conv-nom*1000))
-            self.laResult[4][2].setText('mg')
+            self.laResult[5][1].setText('{0:8.4f}'.format(conv-nom*1000))
+            self.laResult[5][2].setText('mg')
                
             unc =self.totuncabs
-            self.laResult[5][1].setText('{0:6.4f}'.format(unc/1000))
-            self.laResult[5][2].setText('mg')
-            tol = self.getol(nom)            
-            self.laResult[6][1].setText('{0:6.4f}'.format(tol))
+            self.laResult[6][1].setText('{0:6.4f}'.format(unc/1000))
             self.laResult[6][2].setText('mg')
+            tol = self.getol(nom)            
+            self.laResult[7][1].setText('{0:6.4f}'.format(tol))
+            self.laResult[7][2].setText('mg')
+
+            if kda.myEnv.hasEnv==2:
+                suf=' (n/a)'
+            else:
+                suf=''
             
             temp = np.mean(kda.myEnv.edata[:,3])
-            self.laResult[7][1].setText('{0:6.3f}'.format(temp))
-            self.laResult[7][2].setText('\u00b0C')
+            self.laResult[8][1].setText('{0:6.3f}'.format(temp))
+            self.laResult[8][2].setText('\u00b0C'+suf)
+                
             press = np.mean(kda.myEnv.edata[:,2])/1.33322
-            self.laResult[8][1].setText('{0:6.3f}'.format(press))
-            self.laResult[8][2].setText('mm Hg')
+            self.laResult[9][1].setText('{0:6.3f}'.format(press))
+            self.laResult[9][2].setText('mm Hg'+suf)
             hum = np.mean(kda.myEnv.edata[:,1])
-            self.laResult[9][1].setText('{0:6.2f}'.format(hum))
-            self.laResult[9][2].setText('% rel')
+            self.laResult[10][1].setText('{0:6.2f}'.format(hum))
+            self.laResult[10][2].setText('% rel'+suf)
             
                 
         
@@ -733,31 +834,24 @@ class MainWindow(QMainWindow):
    
             
     def updateTable(self):
-        #if kda.hasresult:# and np.isnan(kda.mass)==False:
-        if np.isnan(kda.mass):
-            nitem =QTableWidgetItem('n/a') 
-        else:
-            nitem =QTableWidgetItem('{0:,.4f}'.format(kda.mass) )
-        nitem.setTextAlignment(int(Qt.AlignRight | Qt.AlignVCenter))
-        self.mytable.setItem(self.calcrow,1,nitem)
-        if np.isnan(kda.massunc):
-            nitem =QTableWidgetItem('n/a') 
-        else:
-            nitem =QTableWidgetItem('{0:6.4f}'.format(kda.massunc))
+        if kda.Mass==0:
+            return
+        self.populateUnc()
+        mass = kda.Mass.avemass
+        massunc = self.totuncabs
+        title =  kda.c.title
+        nitem =QTableWidgetItem('{0:,.4f}'.format(mass) )
         nitem.setTextAlignment(int(Qt.AlignRight | Qt.AlignVCenter))
         self.mytable.setItem(self.calcrow,2,nitem)
-        self.mytable.setItem(self.calcrow,3,QTableWidgetItem(kda.title))
-        mass = kda.mass
-        massunc = kda.massunc
-        if np.isnan(mass):
-            mass=-9e99
-        if np.isnan(massunc):
-            massunc=-9e99
+        nitem =QTableWidgetItem('{0:6.4f}'.format(massunc))
+        nitem.setTextAlignment(int(Qt.AlignRight | Qt.AlignVCenter))
+        self.mytable.setItem(self.calcrow,3,nitem)
+        self.mytable.setItem(self.calcrow,1,QTableWidgetItem(title))
 
         mycmd ="""
         replace into k2data (run,value, uncertainty,title)
         values  ("{0}",{1},{2},"{3}");""".\
-           format(self.runid,mass/1000,massunc/1000,kda.title)
+           format(self.runid,mass,massunc,title)
         connection = sqlite3.connect('k2viewer.db')
         cursor = connection.cursor()
         cursor.execute(mycmd)
@@ -776,10 +870,17 @@ class MainWindow(QMainWindow):
         elif ix==2:
             self.progressBar.setValue(0)
             self.sblabel.setText('reading Environmentals')
-        else:
+        elif ix==99:
             self.sblabel.setText('reading of {0} done'.format(kda.bd0))
             self.statusBar.showMessage('Data available',5000)
             self.progressBar.setValue(0)
+            self.populateUnc()
+            self.updateTable()
+            try:
+                self.WriteExcel()
+            except:
+                pass
+
         self.replot()
         self.idle=True
 #           
@@ -887,10 +988,12 @@ class MyTabWidget(QWidget):
         tabMassctrl.addWidget(parent.laUnc)
         tabMassctrl.addWidget(parent.laUncB)
         tabMassctrl.addWidget(parent.lacov)
-        h1 = QHBoxLayout()
-        h1.addWidget(parent.cbMvsZ)
-        h1.addWidget(QLabel('plot vs z'))
-        tabMassctrl.addLayout(h1) 
+        tabMassctrl.addWidget(parent.laNoEnv)
+   
+        #h1 = QHBoxLayout()
+        #h1.addWidget(parent.cbMvsZ)
+        #h1.addWidget(QLabel('plot vs z'))
+        #tabMassctrl.addLayout(h1) 
         tabMassctrl.addItem(verticalSpacer)
         self.tabMass.layout.addLayout(tabMassctrl)
         self.tabMass.layout.addWidget(parent.mplmass)

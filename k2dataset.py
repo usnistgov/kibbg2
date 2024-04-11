@@ -8,8 +8,6 @@ import numpy as np
 import os
 import k2tools
 from pathlib import Path
-import myspline
-import myfilters
 import configparser
 import datetime
 
@@ -438,7 +436,7 @@ class MyEnv():
         self.clear()
     
     def clear(self):
-        self.hasEnv=False
+        self.hasEnv=0
         self.edata = []
         
     
@@ -446,19 +444,40 @@ class MyEnv():
         self.bd0=bd0
         self.guesslen = guesslen
 
-        if self.bd0=='':          
+        if self.bd0=='':     
+            self.makeFakeEnv()
             return            
         if 'PRTData.dat' not in os.listdir(self.bd0):
+            self.makeFakeEnv()
             return
         fn =os.path.join(self.bd0,'PRTData.dat')
         da = np.loadtxt(fn,skiprows=1,usecols=[1,2,3])
         da =np.vstack((np.arange(len(da[:,0])).T*10,da.T)).T
         ix = np.where(np.logical_and(da[:,1]!=0,(da[:,2]!=0),(da[:,3]!=0)))[0]
         da = da[ix,:]
+        if np.shape(da)[0]==0:
+            self.makeFakeEnv()
+            return
         dens = k2tools.airDensity(da[:,3],da[:,2],da[:,1])
         self.edata = np.vstack((da.T,dens)).T
         if np.shape(self.edata)[0]>0:
-            self.hasEnv=True
+            self.hasEnv=1
+        #edata #0 = time 1 = humid 2=press 3 =temp
+            
+    def makeFakeEnv(self):
+        rows = int((self.guesslen*1.2)/10)
+        da = np.zeros((rows,4))
+        for n in range(rows):
+            da[n,0] = n*10
+            da[n,1] = 40
+            da[n,2] = 999.915
+            da[n,3] = 20.0
+        dens = k2tools.airDensity(da[:,3],da[:,2],da[:,1])
+        self.edata = np.vstack((da.T,dens)).T
+        if np.shape(self.edata)[0]>0:
+            self.hasEnv=2
+            
+        
         
         
     
