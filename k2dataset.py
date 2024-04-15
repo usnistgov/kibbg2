@@ -453,7 +453,8 @@ class MyEnv():
         fn =os.path.join(self.bd0,'PRTData.dat')
         da = np.loadtxt(fn,skiprows=1,usecols=[1,2,3])
         da =np.vstack((np.arange(len(da[:,0])).T*10,da.T)).T
-        ix = np.where(np.logical_and(da[:,1]!=0,(da[:,2]!=0),(da[:,3]!=0)))[0]
+        ix = np.where(np.logical_and(\
+            np.logical_and(da[:,1]!=0,(da[:,2]!=0)),(da[:,3]!=0)))[0]
         da = da[ix,:]
         if np.shape(da)[0]==0:
             self.makeFakeEnv()
@@ -536,6 +537,7 @@ class k2Set():
         self.bd0= bd0
         self.c.setbd0(bd0)
         self.ver = self.c.ver
+        print(self.ver)
         self.allfiles = self.readNSort()
         self.assignFiles()
         self.totGrps  = max(self.myVelos.totGrps(),self.myOns.totGrps(),\
@@ -544,9 +546,23 @@ class k2Set():
     def readNSort(self):
         if self.bd0=='':
             return
-        if self.ver>=1:
-            bd1 = os.path.join(self.bd0,'Force mode')
-            bd2 = os.path.join(self.bd0,'Velocity mode')
+        bd1 = os.path.join(self.bd0,'Force mode')
+        bd2 = os.path.join(self.bd0,'Velocity mode')
+        if self.ver>=1.1:
+            l1 = [i for i in os.listdir(bd1)]
+            l2 = [i for i in os.listdir(bd2)]
+            la = sorted(l1+l2)
+            u =[]
+            for i in la:
+                if i in l1:
+                    u.append(os.path.join(bd1,i))
+                elif i in l2:
+                    u.append(os.path.join(bd2,i))
+            tbeg=datetime.datetime.strptime(la[0].split('_')[0],'%Y%m%d%H%M%S')
+            tend=datetime.datetime.strptime(la[-1].split('_')[0],'%Y%m%d%H%M%S')
+            self.guesslen = (tbeg-tend).total_seconds()
+            return [str(i) for i in u]
+        elif self.ver>=1:
             all=[os.path.join(bd1,i) for i in os.listdir(bd1)] + [os.path.join(bd2,i) for i in os.listdir(bd2)]
             ap = [Path(i) for i in all]
             u = sorted(ap,key=os.path.getmtime)
