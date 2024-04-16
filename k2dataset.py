@@ -10,7 +10,7 @@ import k2tools
 from pathlib import Path
 import configparser
 import datetime
-
+from statsmodels.robust.scale import huber
 
 
 class MyFiles():
@@ -230,7 +230,7 @@ class MyForces(MyFiles):
         
 class Mass:
     def __init__(self,Velos,myOns,myOffs,Env,usebl=True,useg=True,\
-                 usedens=True,covk=1):
+                 usedens=True,covk=1,excl3=False):
         self.covk = covk
         self.myEnv = Env
         self.myVelos = Velos
@@ -330,7 +330,14 @@ class Mass:
                 unc =np.sqrt(a[3]**2+b[3]**2)
                 grp =b[4]
                 diffs.append(np.r_[t,z,di,unc,grp])
-        self.dif_d= np.array(diffs)      
+
+        if len(diffs)>6 and excl3==True:
+            diffs = np.array(diffs)
+            mean,sig= huber(diffs[:,2])
+            ix = np.where(np.abs(diffs[:,2]-mean)<5*sig)[0]
+            self.dif_d=diffs[ix,:]
+        else:                                
+            self.dif_d= np.array(diffs)      
         self.avemass = sum(self.dif_d[:,2]/self.dif_d[:,3]**2)/sum(1/self.dif_d[:,3]**2)
         self.uncmass = 1/np.sqrt(sum(1/self.dif_d[:,3]**2))*self.covk
         self.c2=sum((self.dif_d[:,2]-self.avemass)**2/self.dif_d[:,3]**2)
@@ -524,9 +531,9 @@ class k2Set():
         self.mutex.unlock()
 
 
-    def calcMass(self,usebl=True,useg=True,usedens=True):
+    def calcMass(self,excl3=False,usebl=True,useg=True,usedens=True):
         self.Mass= Mass(self.myVelos,self.myOns,self.myOffs,self.myEnv,\
-                        usebl,useg,usedens,covk=self.covk)
+                        usebl,useg,usedens,covk=self.covk,excl3=excl3)
     
         
     def readEnv(self):
@@ -537,7 +544,6 @@ class k2Set():
         self.bd0= bd0
         self.c.setbd0(bd0)
         self.ver = self.c.ver
-        print(self.ver)
         self.allfiles = self.readNSort()
         self.assignFiles()
         self.totGrps  = max(self.myVelos.totGrps(),self.myOns.totGrps(),\

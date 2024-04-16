@@ -66,8 +66,9 @@ class Worker(QObject):
     finished = pyqtSignal()
     intReady = pyqtSignal(int,int,int)
 
-    def __init__(self,order,usesinc):
+    def __init__(self,excl3,order,usesinc):
         self.order =order
+        self.excl3=excl3
         self.usesinc = usesinc
         super(QObject, self).__init__()
 
@@ -77,17 +78,24 @@ class Worker(QObject):
         maxgrp = kda.totGrps
         kda.readEnv()
         self.intReady.emit(2,0,0) 
+        Npl = int((maxgrp+1)//20)
         for k in range(maxgrp+1):
             kda.myVelos.readGrp(k,Vmul=1000)
             kda.myOns.readGrp(k)
             kda.myOffs.readGrp(k)
-            if k>=1:
+            if k>=1 and k%Npl==0:
                 kda.myVelos.fitMe(order=self.order,usesinc=self.usesinc)
                 kda.myOns.aveForce()
                 kda.myOffs.aveForce()
-            if k>=1:
+            if k>=1 and k%Npl==0:
                 kda.calcMass()
-            self.intReady.emit(1,k+1,maxgrp+1)          
+            if k>Npl:
+                self.intReady.emit(1,k+1,maxgrp+1)          
+        kda.myVelos.fitMe(order=self.order,usesinc=self.usesinc)
+        kda.myOns.aveForce()
+        kda.myOffs.aveForce()
+        kda.calcMass(excl3=self.excl3)
+            
         self.intReady.emit(99,0,0) 
         
         self.finished.emit()
@@ -149,12 +157,14 @@ class MainWindow(QMainWindow):
         self.cbShowVolt = QCheckBox()
         self.cbUseSync  = QCheckBox()
         self.cbMvsZ     = QCheckBox()
+        self.cbExc3sig  = QCheckBox()
         self.sbOrder    = QSpinBox()
         self.sbMass     = QDoubleSpinBox()
         self.sbOrder.setValue(6)
         self.sbOrder.setMinimum(1)
         self.sbOrder.setMaximum(10)
         self.cbUseSync.setChecked(True)
+        self.cbExc3sig.setChecked(True)
       
         self.sbMass.setMinimumWidth(100)
         self.sbMass.setMinimum(0)
@@ -287,6 +297,7 @@ class MainWindow(QMainWindow):
         self.cbShowVolt.clicked.connect(self.plotForce)
         self.cbUseSync.clicked.connect(self.recalcvelo)
         self.cbMvsZ.clicked.connect(self.plotMass)
+        self.cbExc3sig.clicked.connect(self.plotMass)
         self.tabWidget.tabs.currentChanged.connect(self.replot)
         self.sbOrder.valueChanged.connect(self.recalcvelo)
         self.sbMass.valueChanged.connect(self.gotmassval)
@@ -479,6 +490,7 @@ class MainWindow(QMainWindow):
     def plotMass(self):
         if kda.Mass==0:
             return
+        kda.calcMass(excl3=self.cbExc3sig.isChecked())
         self.populateUnc()
         self.mplmass.canvas.ax1.clear()
         mutex.lock()
@@ -626,7 +638,7 @@ class MainWindow(QMainWindow):
         order = int(self.sbOrder.value() )
         if kda.myVelos.maxGrpMem>0:
             kda.myVelos.fitMe(order,usesinc=self.cbUseSync.isChecked())
-            kda.calcMass()
+            kda.calcMass(excl3=self.cbExc3sig.isChecked())
             self.replot()
 
     def convmass(self,truemass,density):
@@ -902,8 +914,9 @@ class MainWindow(QMainWindow):
             kda.setbd0(filePath)
             order = int(self.sbOrder.value() )
             usesinc=self.cbUseSync.isChecked()
+            excl3=self.cbExc3sig.isChecked()
     
-            self.obj = Worker(order,usesinc)  # no parent!
+            self.obj = Worker(excl3,order,usesinc)  # no parent!
             self.thread = QThread()  # no parent!
             self.obj.intReady.connect(self.readStatus)
             self.obj.moveToThread(self.thread)
@@ -983,7 +996,13 @@ class MyTabWidget(QWidget):
                                      QSizePolicy.Expanding)
         l4a = QLabel() 
         l4a.setText("mass")
+        h1 = QHBoxLayout()
+
+        h1.addWidget(parent.cbExc3sig) #parent.cbMvsZ)
+        h1.addWidget(QLabel('Excl. outlier'))
         tabMassctrl.addWidget(l4a)
+        tabMassctrl.addLayout(h1) 
+
         tabMassctrl.addWidget(l4b)
         tabMassctrl.addWidget(parent.sbMass)
         tabMassctrl.addWidget(QLabel("Measured Mass:")) 
@@ -992,12 +1011,8 @@ class MyTabWidget(QWidget):
         tabMassctrl.addWidget(parent.laUncB)
         tabMassctrl.addWidget(parent.lacov)
         tabMassctrl.addWidget(parent.laNoEnv)
-   
-        #h1 = QHBoxLayout()
-        #h1.addWidget(parent.cbMvsZ)
-        #h1.addWidget(QLabel('plot vs z'))
-        #tabMassctrl.addLayout(h1) 
         tabMassctrl.addItem(verticalSpacer)
+   
         self.tabMass.layout.addLayout(tabMassctrl)
         self.tabMass.layout.addWidget(parent.mplmass)
         self.tabMass.setLayout(self.tabMass.layout) 
