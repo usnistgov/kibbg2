@@ -79,6 +79,7 @@ class Worker(QObject):
         kda.readEnv()
         self.intReady.emit(2,0,0) 
         Npl = int((maxgrp+1)//20)
+        if Npl==0: Npl=1
         for k in range(maxgrp+1):
             kda.myVelos.readGrp(k,Vmul=1000)
             kda.myOns.readGrp(k)
@@ -881,7 +882,7 @@ class MainWindow(QMainWindow):
             return
         elif ix==1:
             self.progressBar.setValue(int(100*cur/tot))
-            self.sblabel.setText('reading {0} groups'.format(tot))
+            self.sblabel.setText('reading {0} sets'.format(tot))
         elif ix==2:
             self.progressBar.setValue(0)
             self.sblabel.setText('reading Environmentals')
