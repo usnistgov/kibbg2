@@ -856,6 +856,7 @@ class MainWindow(QMainWindow):
         mass = kda.Mass.avemass
         massunc = self.totuncabs
         title =  kda.c.title
+        title = title.replace('"', '\'')
         nitem =QTableWidgetItem('{0:,.4f}'.format(mass) )
         nitem.setTextAlignment(int(Qt.AlignRight | Qt.AlignVCenter))
         self.mytable.setItem(self.calcrow,2,nitem)
@@ -870,6 +871,7 @@ class MainWindow(QMainWindow):
            format(self.runid,mass,massunc,title)
         connection = sqlite3.connect('k2viewer.db')
         cursor = connection.cursor()
+        #print(mycmd)
         cursor.execute(mycmd)
         connection.commit()
         connection.close()    
