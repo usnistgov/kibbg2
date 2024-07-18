@@ -333,9 +333,12 @@ class Mass:
 
         if len(diffs)>6 and excl3==True:
             diffs = np.array(diffs)
-            mean,sig= huber(diffs[:,2])
-            ix = np.where(np.abs(diffs[:,2]-mean)<5*sig)[0]
-            self.dif_d=diffs[ix,:]
+            try:
+                mean,sig= huber(diffs[:,2])
+                ix = np.where(np.abs(diffs[:,2]-mean)<5*sig)[0]
+                self.dif_d=diffs[ix,:]
+            except:
+                self.dif_d= np.array(diffs)
         else:                                
             self.dif_d= np.array(diffs)      
         self.avemass = sum(self.dif_d[:,2]/self.dif_d[:,3]**2)/sum(1/self.dif_d[:,3]**2)
